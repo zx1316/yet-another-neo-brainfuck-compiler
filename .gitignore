@@ -37,6 +37,8 @@
 # Executables
 *.exe
 *.out
+# 不要忽略 cases 中的 out
+!cases/*.out
 *.app
 
 # Build directories
@@ -69,7 +71,7 @@ Testing/
 .cache/
 
 .idea/
-cases/
+cases_large/
 cmake-*/
 inst_table.xlsx
 STL.natvis
