@@ -67,3 +67,9 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+.idea/
+cases/
+cmake-*/
+inst_table.xlsx
+STL.natvis
