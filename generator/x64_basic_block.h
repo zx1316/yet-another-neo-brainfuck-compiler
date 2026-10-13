@@ -10,6 +10,7 @@
 #include "x64_encoding_ctx.h"
 #include "../optimizer/quadruple.h"
 #include "../interpreter/interpreter.h"
+#include "../optimizer/optimization_level.h"
 
 class X64BasicBlock {
 public:
@@ -67,8 +68,8 @@ public:
     int32_t rearrange();
 
     // 生成 windows 汇编
-    // 听我说，看看头文件好了，不要看实现
-    void generateWindows(int32_t optimizeLevel);
+    // 看看头文件好了，不要看实现
+    void generateWindows(OptimizationLevel level);
 
 private:
     struct TempAsmInfo {
@@ -84,7 +85,7 @@ private:
     // 下面的函数顾名思义
     
     void collectTempInfo(std::unordered_map<int32_t, TempAsmInfo>& tempInfos) const;
-    void postOptimize(int32_t optimizeLevel);
+    void postOptimize(OptimizationLevel level);
 
     // 整数常数在 [-128, -3]∪[3, 127]，照理来说优化后不可能出现乘 0 或 ±1 的情况，重排序时已经处理了乘 ±2 的情况
     int32_t imulConstant(

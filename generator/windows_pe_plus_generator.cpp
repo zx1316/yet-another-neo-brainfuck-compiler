@@ -2,6 +2,8 @@
 
 #include <iostream>
 
+#include "../optimizer/code_optimizer.h"
+
 std::array<unsigned char, 990> WindowsPEPlusGenerator::s_legacyPEPlusRuntimeData = {
 	0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00,
 	0xB8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -219,8 +221,8 @@ void WindowsPEPlusGenerator::rearrangeIRs(bool printInfo) const {
 	}
 }
 
-void WindowsPEPlusGenerator::generate(int32_t optimizeLevel, bool isModern, bool printInfo, std::ostream& os) {
-    generateASM(optimizeLevel, printInfo);
+void WindowsPEPlusGenerator::generate(OptimizationLevel level, bool isModern, bool printInfo, std::ostream& os) {
+    generateASM(level, printInfo);
     placeBasicBlocks();
 	setBlocksRelJmp();
     writeTo(os, isModern);
@@ -229,12 +231,12 @@ void WindowsPEPlusGenerator::generate(int32_t optimizeLevel, bool isModern, bool
 	}
 }
 
-void WindowsPEPlusGenerator::generateASM(int32_t optimizeLevel, bool printInfo) const {
-	if (optimizeLevel > 0) {
+void WindowsPEPlusGenerator::generateASM(OptimizationLevel level, bool printInfo) const {
+	if (level != OptimizationLevel::O0) {
 		rearrangeIRs(printInfo);
 	}
     for (auto& block : m_basicBlocks) {
-        block->generateWindows(optimizeLevel);
+        block->generateWindows(level);
     }
 }
 

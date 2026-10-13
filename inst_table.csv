@@ -1,0 +1,77 @@
+﻿mnemonic,op1,op2,op3,op4,iext,pf,0F,po,so,o,proc,st,m,rl,x,tested f,modif f,def f,undef f,f values,"description, notes"
+MOV,r/m8,r8,,,,,,88,,r,,,,,,,,,,,Move
+MOV,r/m16/32/64,r16/32/64,,,,,,89,,r,,,,,,,,,,,Move
+MOV,r8,r/m8,,,,,,8A,,r,,,,,,,,,,,Move
+MOV,r16/32/64,r/m16/32/64,,,,,,8B,,r,,,,,,,,,,,Move
+MOV,r8,imm8,,,,,,B0+r,,,,,,,,,,,,,Move
+MOV,r16/32/64,imm16/32/64,,,,,,B8+r,,,,,,,,,,,,,Move
+MOV,r/m8,imm8,,,,,,C6,,0,,,,,,,,,,,Move
+MOV,r/m16/32/64,imm16/32,,,,,,C7,,0,,,,,,,,,,,Move
+MOVZX,r16/32/64,r/m8,,,,,0F,B6,,r,,,,,,,,,,,Move with Zero-Extend
+MOVZX,r16/32/64,r/m16,,,,,0F,B7,,r,,,,,,,,,,,Move with Zero-Extend
+LEA,r16/32/64,m,,,,,,8D,,r,,,,,,,,,,,Load Effective Address
+ADD,r/m8,r8,,,,,,00,,r,,,,,L,,o..szapc,o..szapc,,,Add
+ADD,r/m16/32/64,r16/32/64,,,,,,01,,r,,,,,L,,o..szapc,o..szapc,,,Add
+ADD,r8,r/m8,,,,,,02,,r,,,,,,,o..szapc,o..szapc,,,Add
+ADD,r16/32/64,r/m16/32/64,,,,,,03,,r,,,,,,,o..szapc,o..szapc,,,Add
+ADD,AL,imm8,,,,,,04,,,,,,,,,o..szapc,o..szapc,,,Add
+ADD,rAX,imm16/32,,,,,,05,,,,,,,,,o..szapc,o..szapc,,,Add
+ADD,r/m8,imm8,,,,,,80,,0,,,,,L,,o..szapc,o..szapc,,,Add
+ADD,r/m16/32/64,imm16/32,,,,,,81,,0,,,,,L,,o..szapc,o..szapc,,,Add
+ADD,r/m16/32/64,imm8,,,,,,83,,0,,,,,L,,o..szapc,o..szapc,,,Add
+SUB,r/m8,r8,,,,,,28,,r,,,,,L,,o..szapc,o..szapc,,,Subtract
+SUB,r/m16/32/64,r16/32/64,,,,,,29,,r,,,,,L,,o..szapc,o..szapc,,,Subtract
+SUB,r8,r/m8,,,,,,2A,,r,,,,,,,o..szapc,o..szapc,,,Subtract
+SUB,r16/32/64,r/m16/32/64,,,,,,2B,,r,,,,,,,o..szapc,o..szapc,,,Subtract
+SUB,AL,imm8,,,,,,2C,,,,,,,,,o..szapc,o..szapc,,,Subtract
+SUB,rAX,imm16/32,,,,,,2D,,,,,,,,,o..szapc,o..szapc,,,Subtract
+SUB,r/m8,imm8,,,,,,80,,5,,,,,L,,o..szapc,o..szapc,,,Subtract
+SUB,r/m16/32/64,imm16/32,,,,,,81,,5,,,,,L,,o..szapc,o..szapc,,,Subtract
+SUB,r/m16/32/64,imm8,,,,,,83,,5,,,,,L,,o..szapc,o..szapc,,,Subtract
+CMP,r/m8,r8,,,,,,38,,r,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r/m16/32/64,r16/32/64,,,,,,39,,r,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r8,r/m8,,,,,,3A,,r,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r16/32/64,r/m16/32/64,,,,,,3B,,r,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,AL,imm8,,,,,,3C,,,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,rAX,imm16/32,,,,,,3D,,,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r/m8,imm8,,,,,,80,,7,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r/m16/32/64,imm16/32,,,,,,81,,7,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+CMP,r/m16/32/64,imm8,,,,,,83,,7,,,,,,,o..szapc,o..szapc,,,Compare Two Operands
+SHL,r/m8,imm8,,,,,,C0,,4,,,,,,,o..szapc,o..sz.pc,o....a.c,,Shift
+SHL,r/m16/32/64,imm8,,,,,,C1,,4,,,,,,,o..szapc,o..sz.pc,o....a.c,,Shift
+SHL,r/m8,1,,,,,,D0,,4,,,,,,,o..szapc,o..sz.pc,.....a..,,Shift
+SHL,r/m16/32/64,1,,,,,,D1,,4,,,,,,,o..szapc,o..sz.pc,.....a..,,Shift
+NEG,r/m8,,,,,,,F6,,3,,,,,L,,o..szapc,o..szapc,,,Two's Complement Negation
+NEG,r/m16/32/64,,,,,,,F7,,3,,,,,L,,o..szapc,o..szapc,,,Two's Complement Negation
+INC,r/m8,,,,,,,FE,,0,,,,,L,,o..szap.,o..szap.,,,Increment by 1
+INC,r/m16/32/64,,,,,,,FF,,0,,,,,L,,o..szap.,o..szap.,,,Increment by 1
+DEC,r/m8,,,,,,,FE,,1,,,,,L,,o..szap.,o..szap.,,,Decrement by 1
+DEC,r/m16/32/64,,,,,,,FF,,1,,,,,L,,o..szap.,o..szap.,,,Decrement by 1
+IMUL,r16/32/64,r/m16/32/64,imm16/32,,,,,69,,r,,,,,,,o..szapc,o......c,...szap.,,Signed Multiply
+IMUL,r16/32/64,r/m16/32/64,imm8,,,,,6B,,r,,,,,,,o..szapc,o......c,...szap.,,Signed Multiply
+IMUL,r16/32/64,r/m16/32/64,,,,,0F,AF,,r,,,,,,,o..szapc,o......c,...szap.,,Signed Multiply
+TEST,r/m8,r8,,,,,,84,,r,,,,,,,o..szapc,o..sz.pc,.....a..,o......c,Logical Compare
+XOR,r/m16/32/64,r16/32/64,,,,,,31,,r,,,,,L,,o..szapc,o..sz.pc,.....a..,o......c,Logical Exclusive OR
+JMP,rel8,,,,,,,EB,,,,,,,,,,,,,Jump
+JMP,rel16/32,,,,,,,E9,,,,D31,,,,,,,,,Jump
+JZ,rel8,,,,,,,74,,,,,,,,....z...,,,,,Jump short if zero/equal (ZF=1)
+JZ,rel16/32,,,,,,0F,84,,,,D31,,,,....z...,,,,,Jump near if zero/equal (ZF=1)
+JNZ,rel8,,,,,,,75,,,,,,,,....z...,,,,,Jump short if not zero/not equal (ZF=0)
+JNZ,rel16/32,,,,,,0F,85,,,,D31,,,,....z...,,,,,Jump near if not zero/not equal (ZF=0)
+CALL,r/m64,,,,,,,FF,,2,,D31,E,,,,,,,,Call Procedure
+REX,,,,,,40,,,,,,,E,,,,,,,,Access to new 8-bit registers
+REX.B,,,,,,41,,,,,,,E,,,,,,,,"Extension of r/m field, base field, or opcode reg field"
+REX.X,,,,,,42,,,,,,,E,,,,,,,,Extension of SIB index field
+REX.XB,,,,,,43,,,,,,,E,,,,,,,,REX.X and REX.B combination
+REX.R,,,,,,44,,,,,,,E,,,,,,,,Extension of ModR/M reg field
+REX.RB,,,,,,45,,,,,,,E,,,,,,,,REX.R and REX.B combination
+REX.RX,,,,,,46,,,,,,,E,,,,,,,,REX.R and REX.X combination
+REX.RXB,,,,,,47,,,,,,,E,,,,,,,,"REX.R, REX.X and REX.B combination"
+REX.W,,,,,,48,,,,,,,E,,,,,,,,64 Bit Operand Size
+REX.WB,,,,,,49,,,,,,,E,,,,,,,,REX.W and REX.B combination
+REX.WX,,,,,,4A,,,,,,,E,,,,,,,,REX.W and REX.X combination
+REX.WXB,,,,,,4B,,,,,,,E,,,,,,,,"REX.W, REX.X and REX.B combination"
+REX.WR,,,,,,4C,,,,,,,E,,,,,,,,REX.W and REX.R combination
+REX.WRB,,,,,,4D,,,,,,,E,,,,,,,,"REX.W, REX.R and REX.B combination"
+REX.WRX,,,,,,4E,,,,,,,E,,,,,,,,"REX.W, REX.R and REX.X combination"
+REX.WRXB,,,,,,4F,,,,,,,E,,,,,,,,"REX.W, REX.R, REX.X and REX.B combination"

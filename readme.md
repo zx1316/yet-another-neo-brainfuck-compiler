@@ -42,6 +42,8 @@
 
 标准的 Windows 平台 CMake 项目。请使用 3.16 以上版本的 CMake 构建。
 
+无外部依赖。
+
 语言标准为 C++23。编译器需使用 MSVC 或 Clang 的较新版本（已测试 Clang 22.1.3）。需要安装 Windows SDK。
 
 ## 代码架构与自我反思

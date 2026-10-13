@@ -99,8 +99,7 @@ void X64BasicBlock::removeJmpIfJmpTo(int32_t target) {
     if (m_asms.empty()) {
         return;
     }
-    auto& lastAsm = m_asms.back();
-    if (lastAsm.op == AsmOp::JMP && lastAsm.imm == target) {
+    if (auto& lastAsm = m_asms.back(); lastAsm.op == AsmOp::JMP && lastAsm.imm == target) {
         m_asms.pop_back();
     }
 }
@@ -109,12 +108,10 @@ void X64BasicBlock::setJmpTarget(const std::unordered_map<X64BasicBlock*, int32_
     if (m_asms.empty()) {
         return;
     }
-    auto& lastAsm = m_asms.back();
-    if (lastAsm.op == AsmOp::JMP) {
+    if (auto& lastAsm = m_asms.back(); lastAsm.op == AsmOp::JMP) {
         lastAsm.imm = idMap.find(m_succN)->second;
         if (m_asms.size() >= 2) {
-            auto &secondLastAsm = m_asms[m_asms.size() - 2];
-            if (secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) {
+            if (auto &secondLastAsm = m_asms[m_asms.size() - 2]; secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) {
                 secondLastAsm.imm = idMap.find(m_succY)->second;
             }
         }
@@ -150,8 +147,7 @@ bool X64BasicBlock::tryShortJmp(int32_t thisId, const int32_t* codePos) {
         }
     }
     if (m_asms.size() >= 2) {
-        auto& secondLastAsm = m_asms[m_asms.size() - 2];
-        if ((secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) && !m_secondLastJmpIsShort) {
+        if (auto& secondLastAsm = m_asms[m_asms.size() - 2]; (secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) && !m_secondLastJmpIsShort) {
             int32_t ip = codePos[thisId] + m_codeSize - (m_lastJmpIsShort ? 2 : lastAsm.op == AsmOp::JMP ? 5 : 6);
             int32_t dest = codePos[secondLastAsm.imm.value()];
             if (dest - ip > -129 && dest - ip < 128) {
@@ -176,8 +172,7 @@ void X64BasicBlock::finalSetJmpRel(int32_t thisId, const int32_t* codePos) {
     int32_t dest = codePos[lastAsm.imm.value()];
     lastAsm.imm = dest - ip;
     if (m_asms.size() >= 2) {
-        auto& secondLastAsm = m_asms[m_asms.size() - 2];
-        if (secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) {
+        if (auto& secondLastAsm = m_asms[m_asms.size() - 2]; secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) {
             ip = codePos[thisId] + m_codeSize - (m_lastJmpIsShort ? 2 : lastAsm.op == AsmOp::JMP ? 5 : 6);
             dest = codePos[secondLastAsm.imm.value()];
             secondLastAsm.imm = dest - ip;
@@ -320,8 +315,7 @@ int32_t X64BasicBlock::rearrange() {
     // 我已经不想管时间复杂度了。。。
     std::vector<Quadruple> assigns;
     for (auto it = m_irs.begin(); it != m_irs.end();) {
-        auto& code = *it;
-        if (code.type == OpType::ASSIGN && code.result.type == ArgType::PTR_OFFSET && code.arg1.type == ArgType::BB_TEMP) {
+        if (auto& code = *it; code.type == OpType::ASSIGN && code.result.type == ArgType::PTR_OFFSET && code.arg1.type == ArgType::BB_TEMP) {
             assigns.push_back(code);
             it = m_irs.erase(it);
         } else {
@@ -388,8 +382,7 @@ int32_t X64BasicBlock::rearrange() {
 
     // 合并临时变量
     for (int32_t i = 0, size = m_irs.size(); i < size; i++) {
-        auto& code = m_irs[i];
-        if (code.result.type == ArgType::BB_TEMP && (code.arg1.type == ArgType::BB_TEMP || code.arg2.type == ArgType::BB_TEMP)) {
+        if (auto& code = m_irs[i]; code.result.type == ArgType::BB_TEMP && (code.arg1.type == ArgType::BB_TEMP || code.arg2.type == ArgType::BB_TEMP)) {
             bool canReplace = true;
             int32_t searchId = code.arg1.type == ArgType::BB_TEMP ? code.arg1.value : code.arg2.value;
             for (int32_t j = i + 1; j < size; j++) {
@@ -442,10 +435,10 @@ int32_t X64BasicBlock::rearrange() {
     return m_irs.size();
 }
 
-void X64BasicBlock::generateWindows(int32_t optimizeLevel) {
+void X64BasicBlock::generateWindows(OptimizationLevel level) {
     m_asms.clear();
     std::unordered_map<int32_t, TempAsmInfo> tempInfos;
-    if (optimizeLevel > 0) {
+    if (level != OptimizationLevel::O0) {
         collectTempInfo(tempInfos);
     }
 
@@ -1614,7 +1607,7 @@ void X64BasicBlock::generateWindows(int32_t optimizeLevel) {
     }
 
     m_spillCount = spills.size();
-    postOptimize(optimizeLevel); // 过一遍后优化
+    postOptimize(level); // 过一遍后优化
 
     // 程序结束代码块
     if (m_succN == nullptr && m_succY == nullptr) {
@@ -1655,14 +1648,12 @@ void X64BasicBlock::collectTempInfo(std::unordered_map<int32_t, TempAsmInfo>& te
         }
     }
     for (int32_t i = 0, size = m_irs.size(); i < size; i++) {
-        auto& code = m_irs[i];
-        if (code.result.type == ArgType::BB_TEMP && tempInfos[code.result.value].liveBegin < 0) {
+        if (auto& code = m_irs[i]; code.result.type == ArgType::BB_TEMP && tempInfos[code.result.value].liveBegin < 0) {
             tempInfos[code.result.value].liveBegin = i;
         }
     }
     for (int32_t i = 0, size = m_irs.size(); i < size; i++) {
-        auto& code = m_irs[i];
-        if (code.type == OpType::PUTCHAR || code.type == OpType::GETCHAR) {
+        if (auto& code = m_irs[i]; code.type == OpType::PUTCHAR || code.type == OpType::GETCHAR) {
             for (auto& info : tempInfos | std::views::values) {
                 if (i > info.liveBegin && i < info.liveEnd) {
                     info.isCrossFuncs = true;
@@ -1672,15 +1663,15 @@ void X64BasicBlock::collectTempInfo(std::unordered_map<int32_t, TempAsmInfo>& te
     }
 }
 
-void X64BasicBlock::postOptimize(int optimizeLevel) {
-    if (optimizeLevel > 0) {
+void X64BasicBlock::postOptimize(OptimizationLevel level) {
+    if (level != OptimizationLevel::O0) {
         // 连续内存常量赋值优化
         for (auto it = m_asms.begin(); it != m_asms.end();) {
             if (it->op == AsmOp::MOV && it->operand1.has_value() && it->operand1->isMem && it->operand1->reg == Reg::BX &&
                 it->operand1->size == Size::BYTE && it->imm.has_value()) {
                 int32_t offset = it->operand1->disp;
                 int8_t data[4] = {static_cast<int8_t>(it->imm.value())};
-                Size size = Size::BYTE;
+                auto size = Size::BYTE;
                 if (auto next1 = it + 1; next1 != m_asms.end() &&
                     next1->op == AsmOp::MOV && next1->operand1.has_value() && next1->operand1->isMem && next1->operand1->reg == Reg::BX &&
                     next1->operand1->disp == offset + 1 && next1->operand1->size == Size::BYTE && next1->imm.has_value()) {
@@ -2404,18 +2395,16 @@ X64AsmOperand::Reg X64BasicBlock::findRegInCandidates(
             return reg;
         }
         // 已经不活跃的寄存器直接分配
-        auto& info = tempInfos[regUse[static_cast<int32_t>(reg)]];
-        if (index < info.liveBegin || index > info.liveEnd) {
+        if (auto& info = tempInfos[regUse[static_cast<int32_t>(reg)]]; index < info.liveBegin || index > info.liveEnd) {
             return reg;
         }
     }
     // 选一个最晚被用到的受害者移到栈上
     int32_t lastUse = -1;
-    Reg selectedReg = Reg::AX;
+    auto selectedReg = Reg::AX;
     for (auto reg : regCandidates) {
         auto& info = tempInfos[regUse[static_cast<int32_t>(reg)]];
-        auto it = info.usePos.lower_bound(index);
-        if (*it > lastUse) {
+        if (auto it = info.usePos.lower_bound(index); *it > lastUse) {
             lastUse = *it;
             selectedReg = reg;
         }
@@ -2427,8 +2416,7 @@ X64AsmOperand::Reg X64BasicBlock::findRegInCandidates(
             stackOffset = i;
             break;
         }
-        auto& info = tempInfos[spills[i]];
-        if (index < info.liveBegin || index > info.liveEnd) {
+        if (auto& info = tempInfos[spills[i]]; index < info.liveBegin || index > info.liveEnd) {
             stackOffset = i;
             break;
         }

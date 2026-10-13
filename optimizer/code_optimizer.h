@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "mid_basic_block.h"
+#include "optimization_level.h"
 
 
 class CodeOptimizer {
@@ -16,7 +17,7 @@ public:
     [[nodiscard]] int32_t countIRs() const;
 
     // 一键代码优化
-    void optimize(int32_t optimizeLevel, bool isStrict, bool printInfo);
+    void optimize(OptimizationLevel level, bool printInfo);
 
     // for debug only
     [[nodiscard]] int32_t checkInnermostBalancedLoop() const;

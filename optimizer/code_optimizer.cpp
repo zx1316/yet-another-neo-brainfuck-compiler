@@ -14,8 +14,7 @@ CodeOptimizer::CodeOptimizer(const std::vector<Quadruple>& codes, int32_t tapeSi
     // 划分基本块
     std::set<int32_t> splits;
     for (int32_t i = 0, size = codes.size(); i < size; i++) {
-        auto& code = codes[i];
-        if (code.type == OpType::JMP || code.type == OpType::JNZ || code.type == OpType::JZ) {
+        if (auto& code = codes[i]; code.type == OpType::JMP || code.type == OpType::JNZ || code.type == OpType::JZ) {
             splits.insert(i + 1);   // 跳转语句的下一条是新基本块的起始
             splits.insert(code.arg2.value); // 跳转语句的目的地是新基本块的起始
         }
@@ -84,10 +83,11 @@ int32_t CodeOptimizer::countIRs() const {
     return cnt;
 }
 
-void CodeOptimizer::optimize(int32_t optimizeLevel, bool isStrict, bool printInfo) {
-    if (optimizeLevel < 1) {
+void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
+    if (level == OptimizationLevel::O0) {
         return;
     }
+    bool isStrict = level == OptimizationLevel::O_STRICT;
     if (printInfo) {
         std::cout << "numIR = " << countIRs() << '\n';
     }
@@ -386,8 +386,7 @@ bool CodeOptimizer::eliminateLocalLoop(bool preAnalyzePtr, bool isStrict, bool p
 bool CodeOptimizer::hoistLocalLoopConstAssign(bool printInfo) {
     std::vector<std::unique_ptr<MidBasicBlock>> newBlocks;
     for (auto& block : m_basicBlocks) {
-        auto newBlock = block->hoistLoopConstAssign();
-        if (newBlock != nullptr) {
+        if (auto newBlock = block->hoistLoopConstAssign(); newBlock != nullptr) {
             newBlocks.push_back(std::move(newBlock));
         }
     }
@@ -724,8 +723,7 @@ void CodeOptimizer::prepareForGlobal() {
     analyzePtrFlow();
     std::vector<std::unique_ptr<MidBasicBlock>> newBlocks;
     for (auto& block : m_basicBlocks) {
-        auto newBlock = block->eliminatePtrMove();
-        if (newBlock != nullptr) {
+        if (auto newBlock = block->eliminatePtrMove(); newBlock != nullptr) {
             newBlocks.push_back(std::move(newBlock));
         }
     }

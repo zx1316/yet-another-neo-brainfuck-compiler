@@ -3,6 +3,16 @@ project(YetAnotherNeoBrainfuckCompiler)
 
 set(CMAKE_CXX_STANDARD 23)
 
+add_definitions(-DDEFAULT_MEM_SIZE=80000000)
+
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    add_definitions(-DHOST_OS_WIN)
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
+    add_definitions(-DHOST_OS_MAC)
+else ()
+    add_definitions(-DHOST_OS_LINUX)
+endif ()
+
 if (MSVC)
     if (CMAKE_BUILD_TYPE MATCHES "Release")
         add_compile_options(/GR- /GS- /GL /Gw)
@@ -15,8 +25,11 @@ else ()
 endif ()
 
 add_executable(bf-compiler main.cpp
+        option.h
+        option.cpp
         parser/neo_parser.h
         parser/neo_parser.cpp
+        optimizer/optimization_level.h
         optimizer/quadruple.cpp
         optimizer/quadruple.h
         optimizer/mid_basic_block.cpp

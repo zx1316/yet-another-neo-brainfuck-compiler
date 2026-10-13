@@ -467,9 +467,8 @@ std::tuple<bool, int32_t, int32_t> MidBasicBlock::eliminateLoop(bool isStrict) {
     // 激进模式：若指针位置未知，分析指针的最大偏移量，然后在常规纸带的两端留出安全空间
     if (isStrict) {
         if (preds.size() == 1 && (stateMap.size() == 1 || (!(ptrIn.isUnknown || ptrIn.isUnreachable) && !hasConstant))) {
-            auto pred = preds.back();
             // pred->succY != nullptr 说明是条件跳转
-            if (pred->succY != nullptr && (pred->succY == succN || pred->succN == succN)) {
+            if (auto pred = preds.back(); pred->succY != nullptr && (pred->succY == succN || pred->succN == succN)) {
                 std::erase(succN->preds, pred);
                 pred->succY = nullptr;
                 pred->succN = this;
@@ -477,9 +476,8 @@ std::tuple<bool, int32_t, int32_t> MidBasicBlock::eliminateLoop(bool isStrict) {
             }
         }
     } else if (preds.size() == 1 && !hasConstant) {
-        auto pred = preds.back();
         // pred->succY != nullptr 说明是条件跳转
-        if (pred->succY != nullptr && (pred->succY == succN || pred->succN == succN)) {
+        if (auto pred = preds.back(); pred->succY != nullptr && (pred->succY == succN || pred->succN == succN)) {
             std::erase(succN->preds, pred);
             pred->succY = nullptr;
             pred->succN = this;
@@ -703,8 +701,7 @@ bool MidBasicBlock::generalOptimize(const std::unordered_map<int32_t, VarValueIn
 
     // 尝试内联跳转变量
     if (!seq2.empty()) {
-        auto& lastCode = seq2.back();
-        if ((lastCode.type == OpType::JZ || lastCode.type == OpType::JNZ) && lastCode.arg1.type == ArgType::BB_TEMP) {
+        if (auto& lastCode = seq2.back(); (lastCode.type == OpType::JZ || lastCode.type == OpType::JNZ) && lastCode.arg1.type == ArgType::BB_TEMP) {
             int32_t i;
             // 找到给这个临时变量赋值的地方
             for (i = seq2.size() - 2; i >= 0; --i) {
@@ -735,8 +732,7 @@ bool MidBasicBlock::generalOptimize(const std::unordered_map<int32_t, VarValueIn
     if (!seq2.empty()) {
         bool isJmpKnown = false;
         bool isJmpToTrue = false;
-        auto &lastCode = seq2.back();
-        if (lastCode.type == OpType::JZ) {
+        if (auto &lastCode = seq2.back(); lastCode.type == OpType::JZ) {
             if (lastCode.arg1.type == ArgType::CONSTANT) {
                 isJmpKnown = true;
                 isJmpToTrue = lastCode.arg1.value == 0;
@@ -773,8 +769,7 @@ bool MidBasicBlock::generalOptimize(const std::unordered_map<int32_t, VarValueIn
     // 指针偏移恢复
     if (currentPtr != 0 && (succN != nullptr || succY != nullptr)) {
         if (!seq2.empty()) {
-            auto &lastCode = seq2.back();
-            if (lastCode.type == OpType::JZ || lastCode.type == OpType::JNZ) {
+            if (auto &lastCode = seq2.back(); lastCode.type == OpType::JZ || lastCode.type == OpType::JNZ) {
                 // 如果指针不平衡，且跳转测试变量是 ptr_offset，在移动完指针后，跳转测试变量恢复到0偏移
                 if (lastCode.arg1.type == ArgType::PTR_OFFSET) {
                     lastCode.arg1.value = 0;
@@ -953,7 +948,7 @@ std::unique_ptr<MidBasicBlock> MidBasicBlock::eliminatePtrMove() {
             // succN 处插入一个移动指针的基本块
             if (ptrOut.pos != 0) {
                 addBlock = std::make_unique<MidBasicBlock>();
-                addBlock->irs.emplace_back(Quadruple::OpType::PTR_ADD, QuadrupleArg{}, QuadrupleArg{ArgType::CONSTANT, ptrOut.pos});
+                addBlock->irs.emplace_back(OpType::PTR_ADD, QuadrupleArg{}, QuadrupleArg{ArgType::CONSTANT, ptrOut.pos});
                 addBlock->preds.push_back(this);
                 addBlock->succN = succN;
                 std::erase_if(succN->preds, [this](auto *block) { return block == this; });
@@ -1104,14 +1099,12 @@ void MidBasicBlock::renameVar(const std::unordered_map<int32_t, int32_t>& offset
 std::ostream & operator<<(std::ostream &os, const MidBasicBlock &obj) {
     os << "BasicBlock@" << &obj << "{codes=[\n";
     auto it1 = obj.irs.begin();
-    auto end1 = obj.irs.end();
-    for (; it1 != end1; ++it1) {
+    for (auto end1 = obj.irs.end(); it1 != end1; ++it1) {
         os << "    " << *it1 << "\n";
     }
     os << "], preds=[";
     auto it2 = obj.preds.begin();
-    auto end2 = obj.preds.end();
-    if (it2 != end2) {
+    if (auto end2 = obj.preds.end(); it2 != end2) {
         os << *it2;
         for (++it2; it2 != end2; ++it2) {
             os << ", " << *it2;
@@ -1128,8 +1121,7 @@ std::ostream & operator<<(std::ostream &os, const MidBasicBlock &obj) {
 void MidBasicBlock::printBrief(std::ostream &os) const {
     os << "BasicBlock@" << this << "{preds=[";
     auto it2 = preds.begin();
-    auto end2 = preds.end();
-    if (it2 != end2) {
+    if (auto end2 = preds.end(); it2 != end2) {
         os << *it2;
         for (++it2; it2 != end2; ++it2) {
             os << ", " << *it2;

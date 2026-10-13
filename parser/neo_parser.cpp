@@ -109,7 +109,7 @@ std::vector<Quadruple> NeoParser::parse(std::istream& input) {
                         break;
                     case ']': {
                         if (stack.empty()) {
-                            throw std::runtime_error(std::to_string(pos) + ": no matching '['");
+                            throw std::runtime_error(std::format("{}: no matching '['", pos));
                         }
                         int32_t index = stack.back();
                         stack.pop_back();
@@ -124,7 +124,7 @@ std::vector<Quadruple> NeoParser::parse(std::istream& input) {
                     }
                     case -1:
                         if (!stack.empty()) {
-                            throw std::runtime_error(std::to_string(pos) + ": missing ']'");
+                            throw std::runtime_error(std::format("{}: missing ']'", pos));
                         }
                         codes.emplace_back(OpType::HALT);
                         return codes;

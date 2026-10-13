@@ -3,6 +3,7 @@
 
 #include "x64_basic_block.h"
 #include "../optimizer/mid_basic_block.h"
+#include "../optimizer/optimization_level.h"
 
 
 class WindowsPEPlusGenerator {
@@ -14,13 +15,13 @@ public:
     [[nodiscard]] int32_t countASMs() const;
 
     // 一键生成 PE+ 文件
-    void generate(int32_t optimizeLevel, bool isModern, bool printInfo, std::ostream& os);
+    void generate(OptimizationLevel level, bool isModern, bool printInfo, std::ostream& os);
 
     // 重排列中间代码用于最终生成，仅能在优化开启时调用，否则出错
     void rearrangeIRs(bool printInfo) const;
 
     // IR -> ASM
-    void generateASM(int32_t optimizeLevel, bool printInfo) const;
+    void generateASM(OptimizationLevel level, bool printInfo) const;
 
     // 放置基本块，先决条件：generateASM
     void placeBasicBlocks();
