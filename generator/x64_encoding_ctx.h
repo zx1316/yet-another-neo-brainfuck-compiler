@@ -2,28 +2,30 @@
 #define YETANOTHERNEOBRAINFUCKCOMPILER_X64_ENCODING_CTX_H
 
 #include "x64_asm.h"
-
 #include <cstdint>
 #include <vector>
+#include <array>
 
-// 做出以下假设：
-// 寄存器-寄存器、寄存器-立即数的 mov 可能是 8/32/64 位，寄存器-内存、内存-寄存器的 mov 可能是 8/32/64 位，内存-立即数的 mov 可能是 8/16/32 位
-// 寄存器-寄存器、寄存器-立即数（8 位）的 add/sub/cmp 只可能是 8/32 位，寄存器-内存、内存-寄存器的 add/sub/cmp 只可能是 8 位，内存-立即数的 add/sub/cmp 只可能是 8 位
-// imul 要么是双 32 位寄存器，要么是双 32 位寄存器 + 8 位立即数
-// movzx 只可能从 8 位寄存器/内存 mov 到 32 位寄存器
-// lea 的目标寄存器是 32/64 位
-// shl 第一个操作数可能是 8/32 位寄存器或 8 位内存，第二个操作数为 8 位立即数
-// neg/inc/dec 的操作数可能是 8/32 位寄存器或 8 位内存
-// xor 的两个操作数一定是 32 位寄存器
-// test 的两个操作数一定是 8 位寄存器
-// call 的操作数一定是 64 位寄存器
-// jmp/jz/jnz 先按照大跳来计算长度
+// 可以处理这些汇编：
+// 几乎所有情况的 add, sub, cmp, lea, inc, dec, neg, movzx, nop
+// mov，除了 `mov rax, [绝对地址]`
+// shl r/m, imm
+// imul r, r/m, (imm)
+// xor r/m16/32/64, r16/32/64
+// test r/m8, r8
+// jmp rel, jz rel, jnz rel
+// call r/m, call rel
+// 其他的汇编指令行为未定义。
+// 假设宿主机是小端。
 class X64EncodingCtx {
 public:
-    [[nodiscard]] int32_t size() const { return m_bytes.size(); }
+    [[nodiscard]] int32_t size() const { return m_bytes.empty() ? m_dryLen : m_bytes.size(); }
     [[nodiscard]] const uint8_t* data() const { return m_bytes.data(); }
-    void clear() { m_bytes.clear(); }
+    void clear() { m_bytes.clear(); m_dryLen = 0; }
+    void dryEmit(const X64Asm& code, bool forceNearJmp);
     void emit(const X64Asm& code, bool forceNearJmp);
+    void dryEmitNop(int32_t len);
+    void emitNop(int32_t len);
 
 private:
     void emitOperandSizeOverride(const X64Asm& code);
@@ -31,9 +33,35 @@ private:
     void emitOpcode(const X64Asm& code, bool forceNearJmp);
     void emitAddressing(const X64Asm& code);
     void emitImm(const X64Asm& code, bool forceNearJmp);
+    bool emitAxSpecial(const X64Asm& code);
+
+    static bool isNeedRex(const X64Asm& code);
+    static int32_t calcOpcodeLen(const X64Asm& code, bool forceNearJmp);
+    static int32_t calcAddressingLen(const X64Asm& code);
+    static int32_t calcImmLen(const X64Asm& code, bool forceNearJmp);
+    static bool isAxSpecial(const X64Asm& code);
 
     std::vector<uint8_t> m_bytes;
-    bool m_isOperandSizeOverride = false;
+    int32_t m_dryLen = 0;
+
+    static constexpr auto NOPS = std::array{
+        "",
+        "\x90",
+        "\x66\x90",
+        "\x0f\x1f\x00",
+        "\x0f\x1f\x40\x00",
+        "\x0f\x1f\x44\x00\x00",
+        "\x66\x0f\x1f\x44\x00\x00",
+        "\x0f\x1f\x80\x00\x00\x00\x00",
+        "\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x66\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x66\x66\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+        "\x66\x66\x66\x66\x66\x66\x66\x0f\x1f\x84\x00\x00\x00\x00\x00",
+    };
 };
 
 

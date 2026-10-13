@@ -7,7 +7,7 @@
 
 struct X64AsmOperand {
     enum class Reg : uint8_t {
-        AX, CX, DX, BX, SP, BP, SI, DI, R8, R9, R10, R11, R12, R13, R14, R15
+        AX, CX, DX, BX, SP, BP, SI, DI, R8, R9, R10, R11, R12, R13, R14, R15, IP
     };
 
     enum class Size : uint8_t {
@@ -77,7 +77,7 @@ struct X64Asm {
     Operator op = Operator::MOV;
     std::optional<X64AsmOperand> operand1;
     std::optional<X64AsmOperand> operand2;
-    std::optional<int32_t> imm;
+    std::optional<int64_t> imm;
 
     friend std::ostream& operator<<(std::ostream& os, const X64Asm& obj) {
         os << OPERATOR_TRANSLATE[static_cast<int32_t>(obj.op)] << '\t';
