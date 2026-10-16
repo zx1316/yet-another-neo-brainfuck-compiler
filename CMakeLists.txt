@@ -5,9 +5,11 @@ set(CMAKE_CXX_STANDARD 23)
 
 add_definitions(-D_HAS_EXCEPTIONS=0)
 add_definitions(-DDEFAULT_MEM_SIZE=80000000)
+#add_definitions(-DINTERPRETER_CHECK)
+
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DHOST_OS_WIN)
-elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
+elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     add_definitions(-DHOST_OS_MAC)
 else ()
     add_definitions(-DHOST_OS_LINUX)

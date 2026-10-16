@@ -17,7 +17,7 @@ struct GettersForInterpret {
 
 class Interpreter {
 public:
-    [[nodiscard]] static std::expected<void, Error> interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr, bool checkBound);
+    [[nodiscard]] static std::expected<void, Error> interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr);
 
 private:
     [[nodiscard]] static const void* getNextBlock(
@@ -30,7 +30,7 @@ private:
         const void* (*succNGetter)(const void*)
     );
     [[nodiscard]] static int32_t executeCode(uint8_t* tape, std::unordered_map<int32_t, uint8_t>& temps, int32_t ptr, const Quadruple& code);
-    [[nodiscard]] static std::string checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code, const void* block, const std::vector<Quadruple>& codes);
+    [[nodiscard]] static bool checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code, const void* block, const std::vector<Quadruple>& codes, std::string& msgOut);
 };
 
 

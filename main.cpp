@@ -198,12 +198,7 @@ static std::expected<void, Error> compileAndExec(std::ifstream& input, int32_t m
         generator.getBasicBlocks().front().get(),
         X64BasicBlock::getGettersForInterpreter(),
         optimizer.getTapeSize(),
-        optimizer.getInitOffset(),
-#ifdef NDEBUG
-        false
-#else
-        true
-#endif
+        optimizer.getInitOffset()
     );
 }
 
