@@ -356,14 +356,14 @@ void WindowsPEPlusGenerator::legacyWriteTo(std::ostream& os) const {
         if (m_initOffset != 0) {
             ctx.emit({
                 X64Asm::Operator::LEA,
-                X64AsmOperand{false, X64AsmOperand::Size::QWORD, X64AsmOperand::Reg::BX},
-                X64AsmOperand{true, X64AsmOperand::Size::QWORD, X64AsmOperand::Reg::AX, m_initOffset}
+                X64RMOperand{false, X64RMOperand::Size::QWORD, X64RMOperand::Reg::BX},
+                X64RMOperand{true, X64RMOperand::Size::QWORD, X64RMOperand::Reg::AX, m_initOffset}
             }, false);
         } else {
             ctx.emit({
                 X64Asm::Operator::MOV,
-                X64AsmOperand{false, X64AsmOperand::Size::QWORD, X64AsmOperand::Reg::BX},
-                X64AsmOperand{false, X64AsmOperand::Size::QWORD, X64AsmOperand::Reg::AX}
+                X64RMOperand{false, X64RMOperand::Size::QWORD, X64RMOperand::Reg::BX},
+                X64RMOperand{false, X64RMOperand::Size::QWORD, X64RMOperand::Reg::AX}
             }, false);
         }
     }

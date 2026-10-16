@@ -3,8 +3,8 @@ project(YetAnotherNeoBrainfuckCompiler)
 
 set(CMAKE_CXX_STANDARD 23)
 
+add_definitions(-D_HAS_EXCEPTIONS=0)
 add_definitions(-DDEFAULT_MEM_SIZE=80000000)
-
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     add_definitions(-DHOST_OS_WIN)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Darwin" )
@@ -14,13 +14,16 @@ else ()
 endif ()
 
 if (MSVC)
+    add_compile_options(/GR-)
     if (CMAKE_BUILD_TYPE MATCHES "Release")
-        add_compile_options(/GR- /GS- /GL /Gw)
+        add_compile_options(/GS- /GL /Gw)
         add_link_options(/LTCG:INCREMENTAL)
     endif ()
+    string(REPLACE "/EHsc" "/EHs-c-" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 else ()
+    add_compile_options(-fno-rtti -fno-exceptions)
     if (CMAKE_BUILD_TYPE MATCHES "Release")
-        add_compile_options(-fno-rtti -fno-stack-protector -flto)
+        add_compile_options(-fno-stack-protector -flto)
     endif ()
 endif ()
 
@@ -49,4 +52,5 @@ add_executable(bf-compiler main.cpp
         generator/x64_encoding_ctx.h
         interpreter/interpreter.cpp
         interpreter/interpreter.h
+        error.h
 )

@@ -1,16 +1,18 @@
 #ifndef YETANOTHERNEOBRAINFUCKCOMPILER_OPTION_H
 #define YETANOTHERNEOBRAINFUCKCOMPILER_OPTION_H
+
+#include <expected>
 #include <span>
 #include <string>
 #include <unordered_map>
-
+#include "error.h"
 
 struct Option {
     const std::string name;
     const std::string longName;
     const std::string description;
     const std::string argValName;
-    void (* const validator)(std::string_view) = nullptr;
+    std::string (* const validator)(std::string_view) = nullptr;
 };
 
 struct ParsedArgs {
@@ -21,6 +23,6 @@ struct ParsedArgs {
 void printHelp(const char* intro, std::span<const Option> options);
 
 // 返回的 string_view.data() 一定以 '\0' 结尾，可以安全地传入 C API
-ParsedArgs parseOptions(int argc, char* argv[], std::span<const Option> options);
+std::expected<ParsedArgs, Error> parseOptions(int argc, char* argv[], std::span<const Option> options);
 
 #endif //YETANOTHERNEOBRAINFUCKCOMPILER_OPTION_H

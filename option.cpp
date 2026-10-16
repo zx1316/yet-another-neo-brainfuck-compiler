@@ -2,7 +2,6 @@
 
 #include <iostream>
 
-
 void printHelp(const char* intro, std::span<const Option> options) {
     constexpr auto MAX_OPT_LEN = 23;
     std::cout << intro;
@@ -49,7 +48,7 @@ void printHelp(const char* intro, std::span<const Option> options) {
     }
 }
 
-ParsedArgs parseOptions(int argc, char* argv[], std::span<const Option> options) {
+std::expected<ParsedArgs, Error> parseOptions(int argc, char* argv[], std::span<const Option> options) {
     ParsedArgs parsedArgs;
     int32_t waitingOpt = -1;
     bool optEnd = false;
@@ -64,8 +63,8 @@ ParsedArgs parseOptions(int argc, char* argv[], std::span<const Option> options)
             if (arg[0] == '-') {
                 // - 开头的视为可选参数
                 if (waitingOpt >= 0) {
-                    // 如果已经有一个在等待参数值的可选参数，抛出异常（如果参数值以 - 开头，应该用 -arg1=-xxx）
-                    throw std::invalid_argument(std::format("missing argument for '{}'", argv[i - 1]));
+                    // 如果已经有一个在等待参数值的可选参数，报错（如果参数值以 - 开头，应该用 -arg1=-xxx）
+                    return std::unexpected(Error{Error::PARSE_ERR + i, std::format("missing argument for '{}'", argv[i - 1])});
                 }
                 if (arg[1] == '-' && arg[2] == '\0') {
                     // --，此后所有参数视为位置参数
@@ -93,12 +92,14 @@ ParsedArgs parseOptions(int argc, char* argv[], std::span<const Option> options)
                             parsedArgs.optArgs[it - options.begin()] = {};
                         } else {
                             if (equPos[1] == '\0') {
-                                // 如果这个参数需要参数值，等号后却没有，抛异常
-                                throw std::invalid_argument(std::format("missing argument: '{}'", arg));
+                                // 如果这个参数需要参数值，等号后却没有，报错
+                                return std::unexpected(Error{Error::PARSE_ERR + i, std::format("missing argument: '{}'", arg)});
                             }
                             std::string_view sv(equPos + 1);
                             if (it->validator != nullptr) {
-                                it->validator(sv);
+                                if (auto err = it->validator(sv); !err.empty()) {
+                                    return std::unexpected(Error{Error::PARSE_ERR + i, std::move(err)});
+                                }
                             }
                             parsedArgs.optArgs[it - options.begin()] = sv;
                         }
@@ -109,7 +110,9 @@ ParsedArgs parseOptions(int argc, char* argv[], std::span<const Option> options)
                     // 如果有在等待的，记录参数值
                     std::string_view sv(arg);
                     if (options[waitingOpt].validator != nullptr) {
-                        options[waitingOpt].validator(sv);
+                        if (auto err = options[waitingOpt].validator(sv); !err.empty()) {
+                            return std::unexpected(Error{Error::ARG_ERR + i, std::move(err)});
+                        }
                     }
                     parsedArgs.optArgs[waitingOpt] = sv;
                     waitingOpt = -1;

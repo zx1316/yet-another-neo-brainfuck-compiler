@@ -6,7 +6,7 @@
 using OpType = Quadruple::OpType;
 using ArgType = QuadrupleArg::ArgType;
 
-void NeoParser::toC(int32_t tapeSize, std::istream& input, std::ostream& output) {
+void parseToC(int32_t tapeSize, std::istream& input, std::ostream& output) {
     int32_t state = 0;
     int32_t acc = 0;
     output << "#include <stdio.h>\nunsigned char tape[" << tapeSize << "];\nint main() {\nunsigned char* p = tape;\n";
@@ -75,7 +75,7 @@ void NeoParser::toC(int32_t tapeSize, std::istream& input, std::ostream& output)
     }
 }
 
-std::vector<Quadruple> NeoParser::parse(std::istream& input) {
+std::expected<std::vector<Quadruple>, Error> parseToQuads(std::istream& input) {
     int32_t pos = 0;    // 对非单字节字符集不一定对
     int32_t state = 0;
     int32_t acc = 0;
@@ -109,7 +109,7 @@ std::vector<Quadruple> NeoParser::parse(std::istream& input) {
                         break;
                     case ']': {
                         if (stack.empty()) {
-                            throw std::runtime_error(std::format("{}: no matching '['", pos));
+                            return std::unexpected(Error{Error::PARSE_ERR, std::format("{}: no matching '['", pos)});
                         }
                         int32_t index = stack.back();
                         stack.pop_back();
@@ -124,7 +124,7 @@ std::vector<Quadruple> NeoParser::parse(std::istream& input) {
                     }
                     case -1:
                         if (!stack.empty()) {
-                            throw std::runtime_error(std::format("{}: missing ']'", pos));
+                            return std::unexpected(Error{Error::PARSE_ERR, std::format("{}: missing ']'", pos)});
                         }
                         codes.emplace_back(OpType::HALT);
                         return codes;
@@ -175,7 +175,7 @@ std::vector<Quadruple> NeoParser::parse(std::istream& input) {
             default: __builtin_unreachable();
         }
         if (pos < 0) {
-            throw std::runtime_error("file too large");
+            return std::unexpected(Error{Error::PARSE_ERR, "file too large"});
         }
     }
 }

@@ -8,6 +8,7 @@
 #include "optimizer/code_optimizer.h"
 #include "parser/neo_parser.h"
 #include "option.h"
+#include "error.h"
 
 namespace {
     enum OutputFormat {
@@ -42,8 +43,9 @@ static const auto OPTIONS = std::array{
         .argValName = "N",
         .validator = [](std::string_view arg) {
             if (arg != "0" && arg != "16") {
-                throw std::invalid_argument(std::format("invalid alignment in '-falign-loops {}'", arg));
+                return std::format("invalid alignment in '-falign-loops {}'", arg);
             }
+            return std::string();
         }
     },
     Option{
@@ -63,8 +65,9 @@ static const auto OPTIONS = std::array{
             int32_t memSize = 0;
             auto* last = arg.data() + arg.size();
             if (auto [ptr, ec] = std::from_chars(arg.data(), last, memSize); ec != std::errc{} || ptr != last || memSize <= 0) {
-                throw std::invalid_argument(std::format("invalid size in '-mmem-size {}'", arg));
+                return std::format("invalid size in '-mmem-size {}'", arg);
             }
+            return std::string();
         }
     },
     Option{
@@ -90,8 +93,9 @@ static const auto OPTIONS = std::array{
         .argValName = "value",
         .validator = [](std::string_view arg) {
             if (arg != "pe" && arg != "c") {
-                throw std::invalid_argument(std::format("unknown format in '--out-format {}'", arg));
+                return std::format("unknown format in '--out-format {}'", arg);
             }
+            return std::string();
         }
     },
     Option{
@@ -151,66 +155,95 @@ static OutputFormat getOutputFormat(const std::unordered_map<int32_t, std::strin
     return DEFAULT_OUT_FORMAT;
 }
 
-static void compileAndSave(std::string_view outPathSv, OutputFormat outFormat, std::ifstream& input, int32_t memSize, OptimizationLevel level, bool printInfo) {
+static std::expected<void, Error> compileAndSave(std::string_view outPathSv, OutputFormat outFormat, std::ifstream& input, int32_t memSize, OptimizationLevel level, bool printInfo) {
     auto outPath = std::filesystem::path(outPathSv);
+    if (outFormat == OUT_C) {
+        std::ofstream output(outPath, std::ios::binary);
+        if (!output) {
+            return std::unexpected(Error{Error::OUTPUT_FILE_ERR, "cannot open output file"});
+        }
+        parseToC(memSize, input, output);
+        return {};
+    }
+
+    auto parsedResult = parseToQuads(input);
+    if (!parsedResult) {
+        return std::unexpected(std::move(parsedResult.error()));
+    }
+    CodeOptimizer optimizer(*parsedResult, memSize);
+    optimizer.optimize(level, printInfo);
+    WindowsPEPlusGenerator generator(optimizer.getBasicBlocks(), optimizer.getTapeSize(), optimizer.getInitOffset());
     std::ofstream output(outPath, std::ios::binary);
     if (!output) {
-        throw std::runtime_error("cannot open output file");
+        return std::unexpected(Error{Error::OUTPUT_FILE_ERR, "cannot open output file"});
     }
-    try {
-        if (outFormat == OUT_C) {
-            NeoParser::toC(memSize, input, output);
-        } else {
-            CodeOptimizer optimizer(NeoParser::parse(input), memSize);
-            optimizer.optimize(level, printInfo);
-            WindowsPEPlusGenerator generator(optimizer.getBasicBlocks(), optimizer.getTapeSize(), optimizer.getInitOffset());
-            generator.generate(level, true, printInfo, output);
-        }
-    } catch (std::exception &) {
-        output.close();
-        std::filesystem::remove(outPath);
-        throw;
-    }
+    generator.generate(level, true, printInfo, output);
+    return {};
 }
 
-static void compileAndExec(std::ifstream& input, int32_t memSize, OptimizationLevel level, bool printInfo) {
-    CodeOptimizer optimizer(NeoParser::parse(input), memSize);
+static std::expected<void, Error> compileAndExec(std::ifstream& input, int32_t memSize, OptimizationLevel level, bool printInfo) {
+    auto parsedResult = parseToQuads(input);
+    if (!parsedResult) {
+        return std::unexpected(std::move(parsedResult.error()));
+    }
+
+    CodeOptimizer optimizer(*parsedResult, memSize);
     optimizer.optimize(level, printInfo);
     WindowsPEPlusGenerator generator(optimizer.getBasicBlocks(), optimizer.getTapeSize(), optimizer.getInitOffset());
     if (level != OptimizationLevel::O0) {
         generator.rearrangeIRs(printInfo);
     }
     std::cout << "interpreting:\n";
-    Interpreter::interpret(generator.getBasicBlocks().front().get(), X64BasicBlock::getGettersForInterpreter(), optimizer.getTapeSize(), optimizer.getInitOffset(), false);
+    return Interpreter::interpret(
+        generator.getBasicBlocks().front().get(),
+        X64BasicBlock::getGettersForInterpreter(),
+        optimizer.getTapeSize(),
+        optimizer.getInitOffset(),
+#ifdef NDEBUG
+        false
+#else
+        true
+#endif
+    );
+}
+
+static std::expected<void, Error> mainCompile(int argc, char* argv[]) {
+    auto parsedArgs = parseOptions(argc, argv, OPTIONS);
+    if (!parsedArgs) {
+        return std::unexpected(std::move(parsedArgs.error()));
+    }
+    auto &[optArgs, posArgs] = *parsedArgs;
+    if (posArgs.empty()) {
+        if (optArgs.contains(OPT_VERSION)) {
+            std::cout << VER_STR;
+            return {};
+        }
+        if (optArgs.contains(OPT_HELP)) {
+            printHelp(HELP_INTRO, OPTIONS);
+            return {};
+        }
+        return std::unexpected(Error{Error::INPUT_FILE_ERR, "no input file"});
+    }
+
+    std::ifstream input(std::filesystem::path(posArgs[0]), std::ios::binary);
+    if (!input) {
+        return std::unexpected(Error{Error::INPUT_FILE_ERR, "cannot open input file"});
+    }
+    auto memSize = getMemSize(optArgs);
+    auto optimizeLevel = getOptimizationLevel(optArgs);
+    bool printInfo = optArgs.contains(OPT_PRINT_INFO);
+    if (auto outFilePathIt = optArgs.find(OPT_OUT); outFilePathIt != optArgs.end()) {
+        return compileAndSave(outFilePathIt->second, getOutputFormat(optArgs), input, memSize, optimizeLevel, printInfo);
+    }
+    return compileAndExec(input, memSize, optimizeLevel, printInfo);
 }
 
 // windows 也用 main，char* 本地编码应该是 ok 的，filesystem::path 会自动处理
 int main(int argc, char* argv[]) {
-    try {
-        if (auto [optArgs, posArgs] = parseOptions(argc, argv, OPTIONS); posArgs.empty()) {
-            if (optArgs.contains(OPT_VERSION)) {
-                std::cout << VER_STR;
-            } else if (optArgs.contains(OPT_HELP)) {
-                printHelp(HELP_INTRO, OPTIONS);
-            } else {
-                throw std::runtime_error("no input file");
-            }
-        } else {
-            std::ifstream input(std::filesystem::path(posArgs[0]), std::ios::binary);
-            if (!input) {
-                throw std::runtime_error("cannot open input file");
-            }
-            auto memSize = getMemSize(optArgs);
-            auto optimizeLevel = getOptimizationLevel(optArgs);
-            bool printInfo = optArgs.contains(OPT_PRINT_INFO);
-            if (auto outFilePathIt = optArgs.find(OPT_OUT); outFilePathIt != optArgs.end()) {
-                compileAndSave(outFilePathIt->second, getOutputFormat(optArgs), input, memSize, optimizeLevel, printInfo);
-            } else {
-                compileAndExec(input, memSize, optimizeLevel, printInfo);
-            }
-        }
-    } catch (std::exception &e) {
-        std::cerr << "error: " << e.what() << '\n';
+    auto noErr = mainCompile(argc, argv);
+    if (noErr) {
+        return 0;
     }
-    return 0;
+    std::cerr << "error: " << noErr.error().msg << '\n';
+    return noErr.error().code;
 }

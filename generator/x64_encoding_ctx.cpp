@@ -1,9 +1,10 @@
 #include "x64_encoding_ctx.h"
 #include <span>
+#include <cassert>
 
 using AsmOp = X64Asm::Operator;
-using Size = X64AsmOperand::Size;
-using Reg = X64AsmOperand::Reg;
+using Size = X64RMOperand::Size;
+using Reg = X64RMOperand::Reg;
 
 void X64EncodingCtx::emit(const X64Asm& code, bool forceNearJmp) {
     emitOperandSizeOverride(code);
@@ -30,16 +31,12 @@ void X64EncodingCtx::dryEmit(const X64Asm &code, bool forceNearJmp) {
 }
 
 void X64EncodingCtx::dryEmitNop(int32_t len) {
-    if (len < 0 || len > 15) {
-        throw std::invalid_argument("Invalid NOP length");
-    }
+    assert(len >= 0 && len <= 15);
     m_dryLen += len;
 }
 
 void X64EncodingCtx::emitNop(int32_t len) {
-    if (len < 0 || len > 15) {
-        throw std::invalid_argument("Invalid NOP length");
-    }
+    assert(len >= 0 && len <= 15);
     m_bytes.append_range(std::span(NOPS[len], len));
 }
 
@@ -365,7 +362,7 @@ void X64EncodingCtx::emitAddressing(const X64Asm& code) {
     }
 
     // mod 和 r/m 字段
-    const X64AsmOperand* modrmOperand;
+    const X64RMOperand* modrmOperand;
     if (code.operand2.has_value() && (code.operand2->isMem || code.op == AsmOp::MOVZX || code.op == AsmOp::IMUL)) {
         modrmOperand = &*code.operand2;   // (r, m) 型和 movzx/imul (r, r/m) 特判
     } else {
@@ -453,7 +450,7 @@ int32_t X64EncodingCtx::calcAddressingLen(const X64Asm &code) {
     }
 
     // mod 和 r/m 字段
-    const X64AsmOperand* modrmOperand;
+    const X64RMOperand* modrmOperand;
     if (code.operand2.has_value() && (code.operand2->isMem || code.op == AsmOp::MOVZX || code.op == AsmOp::IMUL)) {
         modrmOperand = &*code.operand2;   // (r, m) 型和 movzx/imul (r, r/m) 特判
     } else {

@@ -5,14 +5,16 @@
 using OpType = Quadruple::OpType;
 using ArgType = QuadrupleArg::ArgType;
 
-void Interpreter::interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr, bool checkBound) {
+std::expected<void, Error> Interpreter::interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr, bool checkBound) {
     auto tape = std::make_unique<uint8_t[]>(tapeSize);
     std::unordered_map<int32_t, uint8_t> temps;
     if (checkBound) {
         do {
             auto& codes = getters.getCode(block);
             for (auto& code : codes) {
-                checkIndex(tapeSize, ptr, code);
+                if (auto errStr = checkIndex(tapeSize, ptr, code, block, codes); !errStr.empty()) {
+                    return std::unexpected(Error{Error::INTERPRET_ERR, std::move(errStr)});
+                }
                 ptr = executeCode(tape.get(), temps, ptr, code);
             }
             block = getNextBlock(tape.get(), temps, block, ptr, codes, getters.getSuccY, getters.getSuccN);
@@ -26,6 +28,7 @@ void Interpreter::interpret(const void* block, const GettersForInterpret& getter
             block = getNextBlock(tape.get(), temps, block, ptr, codes, getters.getSuccY, getters.getSuccN);
         } while (block != nullptr);
     }
+    return {};
 }
 
 const void* Interpreter::getNextBlock(
@@ -296,32 +299,15 @@ int32_t Interpreter::executeCode(uint8_t* tape, std::unordered_map<int32_t, uint
     return ptr;
 }
 
-void Interpreter::checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code) {
-    if (code.result.type == ArgType::PTR_OFFSET && (ptr + code.result.value >= tapeSize || ptr + code.result.value < 0)) {
-        std::string s("index out of range. tapeSize=");
-        s += std::to_string(tapeSize);
-        s += ", ptr=";
-        s += std::to_string(ptr);
-        s += ", offset=";
-        s += std::to_string(code.result.value);
-        throw std::out_of_range(s);
+std::string Interpreter::checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code, const void* block, const std::vector<Quadruple>& codes) {
+    if (code.result.type == ArgType::PTR_OFFSET && (ptr + code.result.value >= tapeSize || ptr + code.result.value < 0)) [[unlikely]] {
+        return std::format("index out of range. tapeSize={}, ptr={}{:+d}, block={}, pc={}", tapeSize, ptr, code.result.value, block, &code - &codes.front());
     }
-    if (code.arg1.type == ArgType::PTR_OFFSET && (ptr + code.arg1.value >= tapeSize || ptr + code.arg1.value < 0)) {
-        std::string s("index out of range. tapeSize=");
-        s += std::to_string(tapeSize);
-        s += ", ptr=";
-        s += std::to_string(ptr);
-        s += ", offset=";
-        s += std::to_string(code.arg1.value);
-        throw std::out_of_range(s);
+    if (code.arg1.type == ArgType::PTR_OFFSET && (ptr + code.arg1.value >= tapeSize || ptr + code.arg1.value < 0)) [[unlikely]] {
+        return std::format("index out of range. tapeSize={}, ptr={}{:+d}, block={}, pc={}", tapeSize, ptr, code.arg1.value, block, &code - &codes.front());
     }
-    if (code.arg2.type == ArgType::PTR_OFFSET && (ptr + code.arg2.value >= tapeSize || ptr + code.arg2.value < 0)) {
-        std::string s("index out of range. tapeSize=");
-        s += std::to_string(tapeSize);
-        s += ", ptr=";
-        s += std::to_string(ptr);
-        s += ", offset=";
-        s += std::to_string(code.arg2.value);
-        throw std::out_of_range(s);
+    if (code.arg2.type == ArgType::PTR_OFFSET && (ptr + code.arg2.value >= tapeSize || ptr + code.arg2.value < 0)) [[unlikely]] {
+        return std::format("index out of range. tapeSize={}, ptr={}{:+d}, block={}, pc={}", tapeSize, ptr, code.arg2.value, block, &code - &codes.front());
     }
+    return {};
 }

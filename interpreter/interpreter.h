@@ -3,7 +3,9 @@
 
 #include <unordered_map>
 #include <vector>
+#include <expected>
 
+#include "../error.h"
 #include "../optimizer/quadruple.h"
 
 // 孩子们这是个设计失误，聪明的你一定发现了，这其实是个虚表
@@ -15,10 +17,10 @@ struct GettersForInterpret {
 
 class Interpreter {
 public:
-    static void interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr, bool checkBound);
+    [[nodiscard]] static std::expected<void, Error> interpret(const void* block, const GettersForInterpret& getters, int32_t tapeSize, int32_t ptr, bool checkBound);
 
 private:
-    static const void* getNextBlock(
+    [[nodiscard]] static const void* getNextBlock(
         const uint8_t* tape,
         std::unordered_map<int32_t, uint8_t>& temps,
         const void* block,
@@ -27,8 +29,8 @@ private:
         const void* (*succYGetter)(const void*),
         const void* (*succNGetter)(const void*)
     );
-    static int32_t executeCode(uint8_t* tape, std::unordered_map<int32_t, uint8_t>& temps, int32_t ptr, const Quadruple& code);
-    static void checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code);
+    [[nodiscard]] static int32_t executeCode(uint8_t* tape, std::unordered_map<int32_t, uint8_t>& temps, int32_t ptr, const Quadruple& code);
+    [[nodiscard]] static std::string checkIndex(int32_t tapeSize, int32_t ptr, const Quadruple& code, const void* block, const std::vector<Quadruple>& codes);
 };
 
 

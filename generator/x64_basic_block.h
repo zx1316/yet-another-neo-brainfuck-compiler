@@ -1,6 +1,7 @@
 #ifndef YETANOTHERNEOBRAINFUCKCOMPILER_X64_BASIC_BLOCK_H
 #define YETANOTHERNEOBRAINFUCKCOMPILER_X64_BASIC_BLOCK_H
 
+#include <optional>
 #include <ostream>
 #include <set>
 #include <span>
@@ -91,8 +92,8 @@ private:
     int32_t imulConstant(
         int32_t index,
         int32_t targetId,
-        X64AsmOperand::Reg sourceReg,
-        X64AsmOperand::Reg targetReg,
+        X64RMOperand::Reg sourceReg,
+        X64RMOperand::Reg targetReg,
         int32_t constant,
         int32_t oldZfTemp,
         bool* eStates
@@ -100,7 +101,7 @@ private:
 
     [[nodiscard]] bool isNextToCondJmp(int32_t index, int32_t target) const;
 
-    X64AsmOperand::Reg ensureOldTempInReg(
+    X64RMOperand::Reg ensureOldTempInReg(
         int32_t index,
         int32_t target,
         std::unordered_map<int32_t, TempAsmInfo>& tempInfos,
@@ -109,7 +110,7 @@ private:
         std::vector<int32_t>& spills
     );
 
-    X64AsmOperand::Reg findReg(
+    X64RMOperand::Reg findReg(
         int32_t index,
         int32_t target,
         std::unordered_map<int32_t, TempAsmInfo>& tempInfos,
@@ -117,20 +118,20 @@ private:
         std::vector<int32_t>& spills
     );
 
-    X64AsmOperand::Reg findAnotherRegForMul(
+    X64RMOperand::Reg findAnotherRegForMul(
         int32_t index,
-        std::optional<X64AsmOperand::Reg> exclude,
+        std::optional<X64RMOperand::Reg> exclude,
         std::unordered_map<int32_t, TempAsmInfo>& tempInfos,
         int32_t* regUse,
         std::vector<int32_t>& spills
     );
 
-    X64AsmOperand::Reg findRegInCandidates(
+    X64RMOperand::Reg findRegInCandidates(
         int32_t index,
         std::unordered_map<int32_t, TempAsmInfo>& tempInfos,
         int32_t* regUse,
         std::vector<int32_t>& spills,
-        std::span<const X64AsmOperand::Reg> regCandidates
+        std::span<const X64RMOperand::Reg> regCandidates
     );
 
     std::vector<Quadruple> m_irs;
