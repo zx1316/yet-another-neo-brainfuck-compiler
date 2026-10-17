@@ -74,6 +74,11 @@ struct MidBasicBlock {
     PtrState ptrOut = PtrState::Unreachable();
     int32_t ptrDelta = 0;
 
+    // 脏标志：本块的「块内优化输入」变了，需要重新跑一遍块内优化。
+    // 置位来源有两类：写块的 pass 改了这个块，或者数据流分析发现它的 in/ptrIn 变了。
+    // 块内 pass 只处理脏块，处理完清掉。新块默认是脏的。
+    bool dirty = true;
+
 private:
     static void shrinkOptimize(std::vector<Quadruple>& src, std::vector<Quadruple>& dst, bool (Quadruple::*mergeFunc)(const Quadruple &));
 

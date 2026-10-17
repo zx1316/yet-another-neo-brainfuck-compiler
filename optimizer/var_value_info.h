@@ -80,6 +80,17 @@ struct BlockVarValueInfo {
         }
     }
 
+    // 把所有值重置为"不可达"，等价于重新构造一次但保留已分配的桶，
+    // 用于增量重算时复用对象（变量集合不变的前提下）。
+    void resetValues() {
+        for (auto& info : in | std::views::values) {
+            info = VarValueInfo::unreachable();
+        }
+        for (auto& info : out | std::views::values) {
+            info = VarValueInfo::unreachable();
+        }
+    }
+
     void calcOut() {
         for (auto &[offset, varInfo] : in) {
             if (varInfo.type == VarValueInfo::InfoType::UNREACHABLE || !change.contains(offset)) {
@@ -91,24 +102,37 @@ struct BlockVarValueInfo {
     }
 
     bool join(const BlockVarValueInfo& pred, bool isSuccY) {
-        auto newIn = in;
+        // 原来每次 join 都整表拷贝 in、再整表比较，是热点内层循环。
+        // 改成原地逐项更新：只有真正改变的项才写回，同时记录是否有变化。
+        bool hasChanged = false;
+        auto joinInto = [this, &hasChanged](int32_t offset, const VarValueInfo& value) {
+            auto it = in.find(offset);
+            if (it == in.end()) {
+                // 缺项等价于 UNKNOWN，插入本身就和原来的「表大小变了」一样算变化
+                in.emplace(offset, VarValueInfo{});
+                hasChanged = true;
+                return;
+            }
+            auto joined = it->second.join(value);
+            if (joined != it->second) {
+                it->second = joined;
+                hasChanged = true;
+            }
+        };
+
         for (auto &[offset, varInfo] : pred.out) {
             if (offset == pred.jmpTestOffset) [[unlikely]] {
                 // 跳转覆写
                 if (pred.jmpType == Quadruple::OpType::JZ) {
-                    newIn[pred.jmpTestOffset] = newIn[pred.jmpTestOffset].join(isSuccY ? VarValueInfo::exact(0) : VarValueInfo::notZero());
+                    joinInto(pred.jmpTestOffset, isSuccY ? VarValueInfo::exact(0) : VarValueInfo::notZero());
                 } else if (pred.jmpType == Quadruple::OpType::JNZ) {
-                    newIn[pred.jmpTestOffset] = newIn[pred.jmpTestOffset].join(isSuccY ? VarValueInfo::notZero() : VarValueInfo::exact(0));
+                    joinInto(pred.jmpTestOffset, isSuccY ? VarValueInfo::notZero() : VarValueInfo::exact(0));
                 } else {
-                    newIn[offset] = newIn[offset].join(varInfo);
+                    joinInto(offset, varInfo);
                 }
             } else {
-                newIn[offset] = newIn[offset].join(varInfo);
+                joinInto(offset, varInfo);
             }
-        }
-        bool hasChanged = newIn != in;
-        if (hasChanged) {
-            in = std::move(newIn);
         }
         return hasChanged;
     }

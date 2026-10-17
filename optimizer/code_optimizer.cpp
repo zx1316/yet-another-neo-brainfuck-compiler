@@ -90,120 +90,138 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
     if (level == OptimizationLevel::O0) {
         return;
     }
-    bool isStrict = level == OptimizationLevel::O_STRICT;
+    const bool isStrict = level == OptimizationLevel::O_STRICT;
     if (printInfo) {
         std::cout << "numIR = " << countIRs() << '\n';
     }
 
-    // 优化遍
-    // 我已经不知道我在写什么了
-    // 说实话写得挺烂的，性能也不行，会做很多无用功，我摆烂了
-    eliminateLocalLoop(true, isStrict, printInfo);
-    geOptimizeLocalPass(false, printInfo);
-    if (foldJump(false, printInfo)) {
-        geOptimizeLocalPass(false, printInfo);
-    }
+    // 三个阶段顺序固定，改变顺序会改变产物：
+    //   一、块内化简（含单块循环消除），本地信息即可完成；
+    //   二、循环内常量赋值外提，会改变 CFG；
+    //   三、指针位置全局可定时启用全局值信息，并做变量紧凑化。
+    runLocalStages(isStrict, printInfo);
+    runHoistStage(isStrict, printInfo);
+    runGlobalStages(isStrict, printInfo);
+}
+
+// 阶段一：单块循环消除 + 块内化简，一直跑到没有新循环可消除。
+void CodeOptimizer::runLocalStages(bool isStrict, bool printInfo) {
+    // 先无条件跑一轮，让 stage:local-loop 这个检查点至少能看到一次化简结果
+    passEliminateLocalLoop(true, isStrict, printInfo);
+    simplifyBlocks(printInfo);
     checkpoint("stage:local-loop");
 
-    while (true) {
-        if (!eliminateLocalLoop(true, isStrict, printInfo)) {
-            break;
-        }
-        geOptimizeLocalPass(false, printInfo);
-        if (foldJump(false, printInfo)) {
-            geOptimizeLocalPass(false, printInfo);
-        }
+    while (passEliminateLocalLoop(true, isStrict, printInfo)) {
+        simplifyBlocks(printInfo);
     }
     checkpoint("stage:local-fixpoint");
+}
 
-    while (true) {
-        if (!hoistLocalLoopConstAssign(printInfo)) {
-            break;
+// 一次块内化简：通用优化 → 折叠跳转 → （折叠成功就再优化一次）
+void CodeOptimizer::simplifyBlocks(bool printInfo) {
+    passGeOptimizeLocal(false, printInfo);
+    if (passFoldJump(false, printInfo)) {
+        passGeOptimizeLocal(false, printInfo);
+    }
+}
+
+// 阶段二：把循环内的常量赋值外提。每次外提都会改 CFG，所以后面要重新化简。
+void CodeOptimizer::runHoistStage(bool isStrict, bool printInfo) {
+    while (passHoistLocalLoopConstAssign(printInfo)) {
+        passGeOptimizeLocal(false, printInfo);
+        if (passEliminateLocalLoop(true, isStrict, printInfo)) {
+            passGeOptimizeLocal(false, printInfo);
         }
-        geOptimizeLocalPass(false, printInfo);
-        if (eliminateLocalLoop(true, isStrict, printInfo)) {
-            geOptimizeLocalPass(false, printInfo);
-        }
-        if (foldJump(false, printInfo)) {
-            geOptimizeLocalPass(false, printInfo);
+        if (passFoldJump(false, printInfo)) {
+            passGeOptimizeLocal(false, printInfo);
         }
     }
     checkpoint("stage:hoist");
+}
 
-    geOptimizeLocalPass(true, printInfo);
+// 阶段三：全局信息阶段。只有在有块的指针位置可确定时才有意义，
+// 全部可确定时还能再做死赋值消除和变量紧凑化。
+void CodeOptimizer::runGlobalStages(bool isStrict, bool printInfo) {
+    passGeOptimizeLocal(true, printInfo);
     checkpoint("stage:global-local");
-    if (std::ranges::any_of(m_basicBlocks, [](auto &block) { return !block->isPtrStateUnknown(); })) {
-        while (true) {
-            bool flag = false;
-            if (eliminateLocalLoop(false, isStrict, printInfo)) {
-                geOptimizeLocalPass(true, printInfo);
-                flag = true;
-            }
-            if (hoistLocalLoopConstAssign(printInfo)) {
-                geOptimizeLocalPass(true, printInfo);
-                flag = true;
-            }
-            if (foldJump(true, printInfo)) {
-                geOptimizeLocalPass(true, printInfo);
-                flag = true;
-            }
-            if (!flag) break;
-        }
 
-        if (std::ranges::all_of(m_basicBlocks, [](auto &block) { return !block->isPtrStateUnknown(); })) {
-            while (true) {
-                if (!eliminateAssignWithLiveVarInfo(printInfo)) {
-                    break;
-                }
-                geOptimizeLocalPass(true, printInfo);
-                while (true) {
-                    bool flag = false;
-                    if (eliminateLocalLoop(false, isStrict, printInfo)) {
-                        geOptimizeLocalPass(true, printInfo);
-                        flag = true;
-                    }
-                    if (hoistLocalLoopConstAssign(printInfo)) {
-                        geOptimizeLocalPass(true, printInfo);
-                        flag = true;
-                    }
-                    if (foldJump(true, printInfo)) {
-                        geOptimizeLocalPass(true, printInfo);
-                        flag = true;
-                    }
-                    if (!flag) break;
-                }
-            }
-            // 紧凑化处理 ptr offset
-            std::set<int32_t> vars;
-            for (auto& block : m_basicBlocks) {
-                auto vars1 = block->getVars();
-                vars.insert(vars1.begin(), vars1.end());
-            }
-            int32_t i = 0;
-            std::unordered_map<int32_t, int32_t> varMap;
-            for (int32_t offset : vars) {
-                varMap[offset] = i;
-                i++;
-            }
-            for (auto& block : m_basicBlocks) {
-                block->renameVar(varMap);
-            }
-            m_tapeSize = i;
-        } else {
-            // 查找有没有负下标的 ptr offset，如果有，初始化的指针位置平移一下
-            int32_t minNeg = 0;
-            for (auto& block : m_basicBlocks) {
-                if (block->isPtrStateUnknown()) {
-                    continue;
-                }
-                for (int32_t offset : block->getVars()) {
-                    minNeg = std::min(minNeg, offset);
-                }
-            }
-            m_minNegOffset = std::min(m_minNegOffset, minNeg);
+    const bool anyPtrKnown = std::ranges::any_of(
+        m_basicBlocks, [](auto& block) { return !block->isPtrStateUnknown(); });
+    if (!anyPtrKnown) {
+        checkpoint("stage:done");
+        return;
+    }
+
+    runGlobalFixpoint(isStrict, printInfo);
+
+    const bool allPtrKnown = std::ranges::all_of(
+        m_basicBlocks, [](auto& block) { return !block->isPtrStateUnknown(); });
+    if (allPtrKnown) {
+        while (passEliminateAssignWithLiveVarInfo(printInfo)) {
+            passGeOptimizeLocal(true, printInfo);
+            runGlobalFixpoint(isStrict, printInfo);
         }
+        compactVarOffsets();
+    } else {
+        shiftInitOffsetForNegativeOffsets();
     }
     checkpoint("stage:done");
+}
+
+// 三个全局 pass 的定点：任一 pass 有改动就重跑全局块内优化。
+void CodeOptimizer::runGlobalFixpoint(bool isStrict, bool printInfo) {
+    while (true) {
+        bool changed = false;
+        if (passEliminateLocalLoop(false, isStrict, printInfo)) {
+            passGeOptimizeLocal(true, printInfo);
+            changed = true;
+        }
+        if (passHoistLocalLoopConstAssign(printInfo)) {
+            passGeOptimizeLocal(true, printInfo);
+            changed = true;
+        }
+        if (passFoldJump(true, printInfo)) {
+            passGeOptimizeLocal(true, printInfo);
+            changed = true;
+        }
+        if (!changed) {
+            break;
+        }
+    }
+}
+
+// 把所有块用到的 offset 重映射成连续下标，磁带大小随之收缩。
+// 这就是「优化开启且指针位置全局可定时 -mmem-size 被忽略」的原因。
+void CodeOptimizer::compactVarOffsets() {
+    std::set<int32_t> vars;
+    for (auto& block : m_basicBlocks) {
+        auto blockVars = block->getVars();
+        vars.insert(blockVars.begin(), blockVars.end());
+    }
+    int32_t nextId = 0;
+    std::unordered_map<int32_t, int32_t> varMap;
+    for (int32_t offset : vars) {
+        varMap[offset] = nextId;
+        nextId++;
+    }
+    for (auto& block : m_basicBlocks) {
+        block->renameVar(varMap);
+    }
+    m_tapeSize = nextId;
+}
+
+// 指针位置不是全部确定时，把最小的负 offset 记下来，供生成器平移初始指针。
+void CodeOptimizer::shiftInitOffsetForNegativeOffsets() {
+    int32_t minNeg = 0;
+    for (auto& block : m_basicBlocks) {
+        if (block->isPtrStateUnknown()) {
+            continue;
+        }
+        for (int32_t offset : block->getVars()) {
+            minNeg = std::min(minNeg, offset);
+        }
+    }
+    m_minNegOffset = std::min(m_minNegOffset, minNeg);
 }
 
 int32_t CodeOptimizer::checkInnermostBalancedLoop() const {
@@ -236,6 +254,71 @@ void CodeOptimizer::checkpoint(std::string_view stage) {
             m_verifyErrorsAtFinal += errors;
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// pass 框架
+// ---------------------------------------------------------------------------
+
+namespace {
+    AnalysisMask allAnalyses() {
+        AnalysisMask mask;
+        mask.set();
+        return mask;
+    }
+}
+
+bool CodeOptimizer::runPass(std::string_view name, const PassEffect& effect, const std::function<bool()>& fn) {
+    const bool changed = fn();
+
+    if (changed) {
+        // 约定：pass 返回 false 表示什么都没改，此时所有分析继续有效。
+        m_validAnalyses &= ~effect.invalidates;
+        // 精确标记的 pass 自己置 block->dirty；其余 pass 只能整体标脏。
+        if (!effect.managesDirty) {
+            markAllDirty();
+        }
+    }
+
+    if (dbg::options().passes || dbg::wantVerify()) {
+        std::string stage = "pass:";
+        stage += name;
+        if (dbg::options().passes) {
+            dumpCFG(stage, m_basicBlocks);
+        }
+        if (dbg::wantVerify()) {
+            // 逐 pass 的违例只累计到 m_verifyErrors，不当作致命错误；只有 final 才致命。
+            m_verifyErrors += verifyCFG(stage, m_basicBlocks);
+        }
+    }
+    return changed;
+}
+
+bool CodeOptimizer::passEliminateLocalLoop(bool preAnalyzePtr, bool isStrict, bool printInfo) {
+    return runPass("eliminateLocalLoop", PassEffect{allAnalyses(), true, /*managesDirty=*/true},
+                   [&] { return eliminateLocalLoop(preAnalyzePtr, isStrict, printInfo); });
+}
+
+bool CodeOptimizer::passHoistLocalLoopConstAssign(bool printInfo) {
+    return runPass("hoistLocalLoopConstAssign", PassEffect{allAnalyses(), true, /*managesDirty=*/true},
+                   [&] { return hoistLocalLoopConstAssign(printInfo); });
+}
+
+bool CodeOptimizer::passFoldJump(bool useGlobalInfo, bool printInfo) {
+    return runPass(useGlobalInfo ? "foldJump(true)" : "foldJump(false)",
+                   PassEffect{allAnalyses(), true, /*managesDirty=*/true},
+                   [&] { return foldJump(useGlobalInfo, printInfo); });
+}
+
+bool CodeOptimizer::passGeOptimizeLocal(bool useGlobalInfo, bool printInfo) {
+    return runPass(useGlobalInfo ? "geOptimizeLocal(true)" : "geOptimizeLocal(false)",
+                   PassEffect{allAnalyses(), true, /*managesDirty=*/true},
+                   [&] { return geOptimizeLocalPass(useGlobalInfo, printInfo); });
+}
+
+bool CodeOptimizer::passEliminateAssignWithLiveVarInfo(bool printInfo) {
+    return runPass("eliminateAssignWithLiveVarInfo", PassEffect{allAnalyses(), true},
+                   [&] { return eliminateAssignWithLiveVarInfo(printInfo); });
 }
 
 bool CodeOptimizer::mergeAndRemove() {
@@ -319,6 +402,8 @@ bool CodeOptimizer::mergeAndRemove() {
                     }
                 }
                 block->irs.insert(block->irs.end(), succ->irs.begin(), succ->irs.end());
+                // 被合并进来的块内容变了，需要重新跑块内优化（连同它的后继）
+                markDirtyWithSuccessors(block);
                 if (succ->succN != nullptr) {
                     std::erase(succ->succN->preds, succ);
                     if (std::ranges::find(succ->succN->preds, block) == succ->succN->preds.end()) {
@@ -369,9 +454,14 @@ bool CodeOptimizer::mergeAndRemove() {
             return !vis.contains(basicBlock.get());
         });
         for (auto& block : m_basicBlocks) {
+            const auto predsBefore = block->preds.size();
             std::erase_if(block->preds, [&vis](auto* pred) {
                 return !vis.contains(pred);
             });
+            if (block->preds.size() != predsBefore) {
+                // 前驱集合变了，getZeroVarInfoLocally 的结果可能跟着变
+                markDirtyWithSuccessors(block.get());
+            }
         }
     }
 }
@@ -384,6 +474,8 @@ bool CodeOptimizer::eliminateLocalLoop(bool preAnalyzePtr, bool isStrict, bool p
     for (auto& block : m_basicBlocks) {
         if (auto [isChange, minNeg, maxPos] = block->eliminateLoop(isStrict); isChange) {
             hasOptimization = true;
+            // 这个块被改写了，只有它需要重新跑块内优化
+            markDirtyWithSuccessors(block.get());
             m_minNegOffset = std::min(m_minNegOffset, minNeg);
             m_maxPosOffset = std::max(m_maxPosOffset, maxPos);
         }
@@ -403,6 +495,7 @@ bool CodeOptimizer::hoistLocalLoopConstAssign(bool printInfo) {
     std::vector<std::unique_ptr<MidBasicBlock>> newBlocks;
     for (auto& block : m_basicBlocks) {
         if (auto newBlock = block->hoistLoopConstAssign(); newBlock != nullptr) {
+            markDirtyWithSuccessors(block.get());    // 外提改写了循环体；新块默认就是脏的
             newBlocks.push_back(std::move(newBlock));
         }
     }
@@ -475,6 +568,11 @@ bool CodeOptimizer::foldJump(bool useGlobalInfo, bool printInfo) {
             mergedBlocks.insert(pred);
         }
 
+        // 被内联的前驱 IR / 出边变了，只有它们需要重新跑块内优化
+        for (auto* pred : mergedBlocks) {
+            pred->dirty = true;
+        }
+
         if (useGlobalInfo) {
             // 只摘掉真正被内联的前驱；一个都没内联时视为本块没变化
             if (mergedBlocks.empty()) {
@@ -504,15 +602,24 @@ bool CodeOptimizer::geOptimizeLocalPass(bool useGlobalInfo, bool printInfo) {
     // 处理哪些块、值信息从哪来、合并后要不要重算全局信息。骨架完全一致。
     const char* const passName = useGlobalInfo ? "optimizeLocalWithGlobalInfo" : "optimizeLocal";
     if (useGlobalInfo) {
+        // prepareForGlobal 会把指针移动折进偏移量，整张图的 IR 都可能变，只能全量处理
         prepareForGlobal();
+        markAllDirty();
     }
     bool hasOptimization = false;
     while (true) {
         bool changed = false;
-        for (auto& block : m_basicBlocks) {
+        std::vector<MidBasicBlock*> changedBlocks;
+        for (auto& blockPtr : m_basicBlocks) {
+            auto* block = blockPtr.get();
+            // 只处理脏块；处理过就清掉标志，下一轮再看它是不是又被改了
+            if (!block->dirty) {
+                continue;
+            }
             if ((block->varValueInfo != nullptr) != useGlobalInfo) {
                 continue;
             }
+            block->dirty = false;
             bool changedThisBlock = false;
             if (useGlobalInfo) {
                 changedThisBlock = block->generalOptimize(block->varValueInfo->in);
@@ -529,6 +636,7 @@ bool CodeOptimizer::geOptimizeLocalPass(bool useGlobalInfo, bool printInfo) {
             }
             if (changedThisBlock) {
                 changed = true;
+                changedBlocks.push_back(block);
             }
         }
         if (!changed) {
@@ -542,9 +650,16 @@ bool CodeOptimizer::geOptimizeLocalPass(bool useGlobalInfo, bool printInfo) {
             return hasOptimization;
         }
         hasOptimization = true;
-        const bool merged = mergeAndRemove();
-        if (useGlobalInfo && merged) {
-            prepareForGlobal();
+        if (mergeAndRemove()) {
+            // 合块/删块后 changedBlocks 里的指针可能已经失效，只能整体标脏
+            markAllDirty();
+            if (useGlobalInfo) {
+                prepareForGlobal();
+            }
+        } else {
+            for (auto* block : changedBlocks) {
+                markDirtyWithSuccessors(block);
+            }
         }
     }
 }
@@ -568,7 +683,10 @@ bool CodeOptimizer::eliminateAssignWithLiveVarInfo(bool printInfo) {
     return hasOptimization;
 }
 
-void CodeOptimizer::analyzePtrFlow() const {
+void CodeOptimizer::analyzePtrFlow() {
+    if (analysisValid(AnalysisId::PtrFlow)) {
+        return;
+    }
     // 初始化
     for (auto& block : m_basicBlocks) {
         block->calcDelta();
@@ -614,9 +732,13 @@ void CodeOptimizer::analyzePtrFlow() const {
             }
         }
     }
+    markAnalysisValid(AnalysisId::PtrFlow);
 }
 
-void CodeOptimizer::analyzeVarValueFlow() const {
+void CodeOptimizer::analyzeVarValueFlow() {
+    if (analysisValid(AnalysisId::VarValue)) {
+        return;
+    }
     std::unordered_set<int32_t> vars;
     std::unordered_set<MidBasicBlock*> blocks;
     for (auto &block : m_basicBlocks) {
@@ -630,13 +752,22 @@ void CodeOptimizer::analyzeVarValueFlow() const {
     // 其实有个bug，即出指针可预测区间的跳转变量不应该出现在vars里（前面可能有个ptr_add），但是鉴于out不会传播给不可预测基本块，安全
 
     if (blocks.empty()) {
+        markAnalysisValid(AnalysisId::VarValue);
         return;
     }
 
-    // 初始化
+    // 初始化：变量集合没变时复用上一轮的对象，避免每轮重建所有块的 unordered_map。
+    const bool reuse = (vars == m_lastVarValueVars);
     for (auto& block : blocks) {
-        block->varValueInfo = std::make_unique<BlockVarValueInfo>(vars);
+        if (!reuse || block->varValueInfo == nullptr) {
+            block->varValueInfo = std::make_unique<BlockVarValueInfo>(vars);
+        } else {
+            block->varValueInfo->resetValues();
+        }
         block->calcVarChange();
+    }
+    if (!reuse) {
+        m_lastVarValueVars = vars;
     }
     m_basicBlocks[0]->varValueInfo->setAllInZero();
 
@@ -665,9 +796,13 @@ void CodeOptimizer::analyzeVarValueFlow() const {
             }
         }
     }
+    markAnalysisValid(AnalysisId::VarValue);
 }
 
-void CodeOptimizer::analyzeLiveVar() const {
+void CodeOptimizer::analyzeLiveVar() {
+    if (analysisValid(AnalysisId::LiveVar)) {
+        return;
+    }
     // 默认构造所有的 in 都是空集
     for (auto& block : m_basicBlocks) {
         block->liveVarInfo = std::make_unique<BlockLiveVarInfo>();
@@ -697,6 +832,7 @@ void CodeOptimizer::analyzeLiveVar() const {
             }
         }
     } while (change);
+    markAnalysisValid(AnalysisId::LiveVar);
 }
 
 void CodeOptimizer::prepareForGlobal() {
@@ -709,5 +845,9 @@ void CodeOptimizer::prepareForGlobal() {
     }
     // 这里不需要尝试合并，因为新增的基本块是条件跳转某后继指针位置爆了然后挪指针的，肯定合并不了
     m_basicBlocks.insert(m_basicBlocks.end(), std::make_move_iterator(newBlocks.begin()), std::make_move_iterator(newBlocks.end()));
+    // eliminatePtrMove 即使没拆出新块也会改写块内 IR（把指针移动折进基址+偏移），所以分析结果
+    // 一律作废。ptrIn/ptrOut 的数据本身仍然可用（值流分析直接读它们），这里清的只是"有效"标记。
+    m_validAnalyses.reset();
+    markAllDirty();
     analyzeVarValueFlow();
 }

@@ -16,6 +16,7 @@ struct Options {
     bool parse = false;      // 构造完基本块，优化之前
     bool final = false;      // 优化结束、交给生成器之前的最终形态
     bool stages = false;     // optimize() 内部各阶段边界
+    bool passes = false;     // 每个 pass 执行之后
     // --dump-asm
     bool asmDump = false;
     // --verify
@@ -25,7 +26,7 @@ struct Options {
 void configure(const Options& options);
 [[nodiscard]] const Options& options();
 
-// 形如 "parse" / "optimize" / "final" / "stage:<名字>"
+// 形如 "parse" / "final" / "stage:<名字>" / "pass:<名字>"
 [[nodiscard]] bool wantStage(std::string_view stage);
 [[nodiscard]] bool wantAsm();
 [[nodiscard]] bool wantVerify();

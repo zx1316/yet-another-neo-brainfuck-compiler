@@ -38,12 +38,15 @@ bool wantStage(std::string_view stage) {
     if (stage.starts_with("stage:")) {
         return g_options.stages;
     }
+    if (stage.starts_with("pass:")) {
+        return g_options.passes;
+    }
     return false;
 }
 
 std::string applyStageList(Options& options, std::string_view list) {
     if (list.empty()) {
-        return "--dump-ir 需要一个值：parse,final,stages,all";
+        return "--dump-ir 需要一个值：parse,final,stages,passes,all";
     }
     std::size_t begin = 0;
     while (true) {
@@ -57,16 +60,18 @@ std::string applyStageList(Options& options, std::string_view list) {
         }
         if (!item.empty()) {
             if (item == "all") {
-                options.parse = options.final = options.stages = true;
+                options.parse = options.final = options.stages = options.passes = true;
             } else if (item == "parse") {
                 options.parse = true;
             } else if (item == "final") {
                 options.final = true;
             } else if (item == "stages") {
                 options.stages = true;
+            } else if (item == "passes") {
+                options.passes = true;
             } else {
                 return "未知的 --dump-ir 阶段 '" + std::string(item)
-                       + "'；可选 parse,final,stages,all";
+                       + "'；可选 parse,final,stages,passes,all";
             }
         }
         if (comma == std::string_view::npos) {

@@ -1,12 +1,43 @@
 #ifndef YETANOTHERNEOBRAINFUCKCOMPILER_CODE_OPTIMIZER_H
 #define YETANOTHERNEOBRAINFUCKCOMPILER_CODE_OPTIMIZER_H
 
+#include <bitset>
 #include <cstdint>
+#include <functional>
 #include <string_view>
+#include <unordered_set>
 #include <vector>
 
 #include "mid_basic_block.h"
 #include "optimization_level.h"
+
+// ---------------------------------------------------------------------------
+// pass 框架
+//
+// 目标：所有 pass 都从同一个入口执行，由入口统一维护「哪些分析还有效」和
+// 「哪些基本块可能变了」。以后要加自然循环、平衡区、支配树这类分析，只需在
+// AnalysisId 里加一项，并在对应 pass 的 PassEffect 里声明失效条件。
+// ---------------------------------------------------------------------------
+
+enum class AnalysisId : std::uint8_t {
+    PtrFlow,     // 指针位置（ptrIn / ptrOut）
+    VarValue,    // 变量值（varValueInfo）
+    LiveVar,     // 活跃变量（liveVarInfo）
+    Count,
+};
+
+using AnalysisMask = std::bitset<static_cast<std::size_t>(AnalysisId::Count)>;
+
+// 一个 pass 的影响声明。
+struct PassEffect {
+    // 跑完之后这些分析不再有效；空表示这个 pass 不破坏任何分析
+    AnalysisMask invalidates;
+    // 可能增删基本块或改动 CFG 边
+    bool touchesCFG = false;
+    // 这个 pass 自己精确标记了它改过的块（block->dirty）。
+    // 为 false 时，runPass 在 pass 返回 true 后把所有块标脏。
+    bool managesDirty = false;
+};
 
 
 class CodeOptimizer {
@@ -72,17 +103,45 @@ private:
     bool eliminateAssignWithLiveVarInfo(bool printInfo);
 
     // 全局指针位置分析
-    void analyzePtrFlow() const;
+    void analyzePtrFlow();
 
     // 前向分析变量值，可用于跨基本块（指针确定）的常数折叠/传播、无效赋值消除
-    void analyzeVarValueFlow() const;
+    void analyzeVarValueFlow();
 
     // 活跃变量分析
     // 必须全基本块指针已知，且完成指针移动消除，否则出错
-    void analyzeLiveVar() const;
+    void analyzeLiveVar();
 
     // 全局优化预备：分析指针 + 指针移动消除 + 变量值分析
     void prepareForGlobal();
+
+    // pass 的统一执行入口：维护分析有效性与脏块集合，并按需 dump / 校验。
+    // fn 返回 false 时约定「什么都没改」，此时不失效任何分析。
+    bool runPass(std::string_view name, const PassEffect& effect, const std::function<bool()>& fn);
+
+    // ---- 优化流水线：三个阶段，见 optimize() 上方注释 ----
+    void runLocalStages(bool isStrict, bool printInfo);
+    void simplifyBlocks(bool printInfo);
+    void runHoistStage(bool isStrict, bool printInfo);
+    void runGlobalStages(bool isStrict, bool printInfo);
+    void runGlobalFixpoint(bool isStrict, bool printInfo);
+    void compactVarOffsets();
+    void shiftInitOffsetForNegativeOffsets();
+
+    [[nodiscard]] bool analysisValid(AnalysisId id) const {
+        return m_validAnalyses.test(static_cast<std::size_t>(id));
+    }
+
+    void markAnalysisValid(AnalysisId id) {
+        m_validAnalyses.set(static_cast<std::size_t>(id));
+    }
+
+    // 各 pass 的包装，提供统一的名字（--print-info / --dump-ir=passes / --verify 共用）
+    bool passEliminateLocalLoop(bool preAnalyzePtr, bool isStrict, bool printInfo);
+    bool passHoistLocalLoopConstAssign(bool printInfo);
+    bool passFoldJump(bool useGlobalInfo, bool printInfo);
+    bool passGeOptimizeLocal(bool useGlobalInfo, bool printInfo);
+    bool passEliminateAssignWithLiveVarInfo(bool printInfo);
 
     std::vector<std::unique_ptr<MidBasicBlock>> m_basicBlocks;
     int32_t m_minNegOffset;
@@ -90,6 +149,30 @@ private:
     int32_t m_tapeSize;
     int32_t m_verifyErrors = 0;
     int32_t m_verifyErrorsAtFinal = 0;
+    // 分析有效性：位为 1 表示结果仍然可用。
+    // 这些分析会写入块上的缓存字段，所以它们和持有者都不是 const 的。
+    AnalysisMask m_validAnalyses;
+    // 上一轮变量值分析用到的变量集合。集合不变时可以复用 BlockVarValueInfo，
+    // 省掉整轮 unordered_map 重建。
+    std::unordered_set<int32_t> m_lastVarValueVars;
+
+    void markAllDirty() const {
+        for (auto& block : m_basicBlocks) {
+            block->dirty = true;
+        }
+    }
+
+    // 块被改写后：它自己、以及它的后继都要重跑块内优化。
+    // 后继是必须的——getZeroVarInfoLocally 要看前驱末尾的条件跳转。
+    static void markDirtyWithSuccessors(MidBasicBlock* block) {
+        block->dirty = true;
+        if (block->succN != nullptr) {
+            block->succN->dirty = true;
+        }
+        if (block->succY != nullptr) {
+            block->succY->dirty = true;
+        }
+    }
 };
 
 

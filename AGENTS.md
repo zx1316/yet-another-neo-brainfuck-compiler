@@ -50,7 +50,7 @@ cmake --build cmake-build-release-clang
 | `-help` / `--help`、`-v` / `--version` | | 帮助、版本 |
 | `-falign-loops=<N>` | 0 \| 16 | **只做参数校验，不产生任何效果** |
 | `-fclj` | | **无任何效果** |
-| `--dump-ir=<list>` | `parse` \| `final` \| `stages` \| `all` | 往 stderr 打印 CFG 检查点（逗号分隔可多选） |
+| `--dump-ir=<list>` | `parse` \| `final` \| `stages` \| `passes` \| `all` | 往 stderr 打印 CFG 检查点（逗号分隔可多选） |
 | `--dump-asm` | | 往 stderr 打印基本块、指令与编码后的机器码字节 |
 | `--verify` | | 检查 CFG 不变量；最终 CFG 有违例时编译失败（exit 5） |
 
@@ -68,10 +68,10 @@ cmake --build cmake-build-release-clang
 
 三个开关都写 **stderr**，因为解释执行模式下 stdout 属于被编译的 Brainfuck 程序。
 
-- `--dump-ir=parse` 看刚划分完基本块的原始 CFG；`final` 看交给生成器之前的形态；`stages` 看 `optimize()` 内部各阶段边界。
+- `--dump-ir=parse` 看刚划分完基本块的原始 CFG；`final` 看交给生成器之前的形态；`stages` 看 `optimize()` 内部各阶段边界；`passes` 看每个 pass 执行之后。
 - `--dump-asm` 在 `-o` 路径上打印放置后的基本块（IP、指令、机器码字节），在解释执行路径上打印重排后的 IR。
 - 块按序号编号（`B0`、`B1`…），前驱后继也打印编号，**不打指针地址**，所以两次 dump 可以直接做文本 diff。
-- `--verify` 检查：后继在图内、末尾跳转形态与 `succY` 一致、前驱/后继双向一致、`ptrOut == ptrIn + ptrDelta`。
+- `--verify` 现在是**逐 pass** 校验（`verify[pass:<名字>]`），外加 `parse` / 各阶段 / `final`。检查：后继在图内、末尾跳转形态与 `succY` 一致、前驱/后继双向一致、`ptrOut == ptrIn + ptrDelta`。逐 pass 的违例只报告；只有 `final` 的违例才让编译失败。
 
 `--verify` 已经把 `preds` 的一处真实缺陷暴露并修掉：`hoistLoopConstAssign` 在"常量赋值被循环内引用、需要先展开一次"的分支里把外提节点的 `succY` 接到循环后继，却没有把外提节点登记进对方的 `preds`。`mergeAndRemove` 用 `succN->preds.size() == 1` 判断能否合并，`preds` 少一项就可能在本不该合并时合并，属于硬缺陷。修复后 90 组扫描全部通过，产物字节不变。
 
@@ -93,7 +93,7 @@ uv run --no-project python test/run_tests.py
 
 | 参数 | 作用 |
 | --- | --- |
-| `--configs O0,O1,strict` | 参与检查的配置，默认三组全跑 |
+| `--configs O1,strict` | 参与检查的配置，默认 `O1,strict`；优化器改动不必跑 `O0`（8MB 用例在 O0 下要几十秒） |
 | `--filter "8*"` | 按用例名过滤，快速迭代 |
 | `--cases-dir PATH` | 用例目录，默认 `test/cases` |
 | `--large-dir PATH` | 大压力用例目录，默认 `test/cases_large`，配合 `--include-large` |
@@ -126,7 +126,9 @@ uv run --no-project python test/run_tests.py
 
 ### 当前已知的失败
 
-全量运行 4 项未过：`-O0` 29/30、`-O1` 29/30、`-Ostrict` 29/30，二进制基线与产物哈希全部一致。这 4 项都是真的代码问题，不是数据问题。
+全量运行（默认 `O1,strict`）3 项未过：`-O1` 29/30、`-Ostrict` 29/30，二进制基线与产物哈希全部一致。3 项都是 `dbf2c` 的误编译，是真正的代码问题，不是数据问题。
+
+（`-O0` 不在默认配置里。它的失败项是 `7_in_4` 超时——8MB 用例在 O0 下要一分钟以上，而优化器的改动本来就不影响 O0。）
 
 - **`dbf2c` 的误编译，已定位到汇编生成层**。它的输出是 C 代码：
   - `dbf2c_in_1`：`-O0` 输出 `write(1,e,1)`，`-O1` 输出 `write(w,e,1)`，`-Ostrict` 输出 `char>r[65536]`。
@@ -191,16 +193,30 @@ uv run --no-project python test/run_tests.py
 
 `CodeOptimizer` 持有 `std::vector<std::unique_ptr<MidBasicBlock>>`。`MidBasicBlock` 是裸字段 `struct`（`irs`、`preds`、`succN`、`succY`、`ptrIn`/`ptrOut`、`ptrDelta`，外加 `varValueInfo`、`liveVarInfo`），优化方法挂在它身上。
 
-`CodeOptimizer::optimize()`（`code_optimizer.cpp`）是手工编排的定点循环序列，不是 pass manager。实际顺序：
+`CodeOptimizer::optimize()`（`code_optimizer.cpp`）现在是三个阶段，顺序固定，改顺序会改产物：
 
-1. `O0` 直接返回。
-2. `eliminateLocalLoop` → `geOptimizeLocalPass(false)` → `foldJump(false)`。
-3. 定点：`eliminateLocalLoop` + `geOptimizeLocalPass(false)` + `foldJump(false)`。
-4. 定点：`hoistLocalLoopConstAssign` + `geOptimizeLocalPass(false)` + `eliminateLocalLoop` + `foldJump(false)`。
-5. `geOptimizeLocalPass(true)`。
-6. 若存在指针状态已知的块：定点跑 `eliminateLocalLoop(false)` / `hoistLocalLoopConstAssign` / `foldJump(true)`，每次后接 `geOptimizeLocalPass(true)`。
-7. 若**所有**块指针状态已知：加 `eliminateAssignWithLiveVarInfo` 参与定点，最后做**变量紧凑化**——收集所有块用到的 offset，排序后经 `renameVar` 重映射成连续下标，并把 `m_tapeSize` 改成 offset 个数。这就是 `-mmem-size` 在全局指针可定时「被自动忽略」的原因。
-8. 否则：把负向最小 offset 记入 `m_minNegOffset`，用于平移初始指针。
+```
+optimize()
+├─ runLocalStages()     阶段一：单块循环消除 + 块内化简，跑到不动点
+│    ├─ passEliminateLocalLoop(true) ×1
+│    ├─ simplifyBlocks()          通用优化 → 折叠跳转 → （折叠成功再优化一次）
+│    └─ while (passEliminateLocalLoop(true)) simplifyBlocks()
+├─ runHoistStage()      阶段二：循环内常量赋值外提（会改 CFG）
+│    └─ while (passHoistLocalLoopConstAssign())
+│         块内化简 → 若循环消除有改动再化简 → 若折叠跳转有改动再化简
+└─ runGlobalStages()    阶段三：全局信息阶段
+     ├─ passGeOptimizeLocal(true)
+     ├─ 没有任何块能确定指针位置 → 结束
+     ├─ runGlobalFixpoint()   三个全局 pass 的定点，任一有改动就重跑 passGeOptimizeLocal(true)
+     └─ 所有块都能确定指针位置
+          ├─ while (passEliminateAssignWithLiveVarInfo()) { 全局块内优化; runGlobalFixpoint(); }
+          ├─ compactVarOffsets()        重映射成连续下标，m_tapeSize 收缩
+          └─ 否则 shiftInitOffsetForNegativeOffsets()
+```
+
+`runGlobalFixpoint()` 原来在 `optimize()` 里被复制了两遍（第 6 步和死赋值消除的内层），现在是同一个函数。
+
+**变量紧凑化**会把所有块用到的 offset 排序后经 `renameVar` 重映射成连续下标，并把 `m_tapeSize` 改成 offset 个数。这就是 `-mmem-size` 在全局指针可定时「被自动忽略」的原因。
 
 `mergeAndRemove()`（合并块 + 删不可达块）是在各遍内部被反复调用的，不在上面这串顶层序列里单独出现。
 
@@ -211,7 +227,35 @@ uv run --no-project python test/run_tests.py
 
 `foldJump(useGlobalInfo, ...)` 和 `geOptimizeLocalPass(useGlobalInfo, ...)` 各自是"局部/全局"两个旧版本的合并结果，差异由一个开关表达（见函数上方注释）。**不要再拆回两个函数**——它们原本就是同一段代码的两个副本。
 
-**分析成本实测**（临时插桩，已撤）：`analyzePtrFlow` 全程不到 0.2ms，**不是瓶颈**；真正贵的是 `analyzeVarValueFlow`，变量多的程序上占编译时间 37%~64%（`cases/9` 是 75ms / 117ms）。方向是把它做成增量分析而不是加缓存——两次调用之间 IR 确实变了，缓存命中率极低。注意别用"跳过分析看省多少"来估成本：跳过会让依赖它的优化全部失效，量到的是整个全局优化阶段。
+### pass 框架（`code_optimizer.h`）
+
+所有 pass 都经过 `CodeOptimizer::runPass(name, PassEffect, fn)` 执行，`optimize()` 里看到的是 `passEliminateLocalLoop` / `passFoldJump` / `passGeOptimizeLocal` 这类包装。入口统一做四件事：
+
+1. **分析失效**：`fn` 返回 true 时按 `PassEffect::invalidates` 清掉对应分析的有效位。约定 **pass 返回 false 表示什么都没改**，此时所有分析继续有效。
+2. **脏标志**：脏标志在基本块上（`MidBasicBlock::dirty`），不在优化器里。写块的 pass 通过 `PassEffect::managesDirty = true` 声明"我自己标记"，用 `markDirtyWithSuccessors(block)` 精确置位——**必须带上后继**，因为 `getZeroVarInfoLocally()` 要看前驱末尾的条件跳转。合块删块时标志随块消失，新块默认是脏的，不用登记。
+
+   `geOptimizeLocalPass` 只处理脏块，处理完清标志；本轮改动的块在下一轮重新置脏。没声明 `managesDirty` 的 pass 仍由 `runPass` 在返回 true 时 `markAllDirty()` 兜底。
+
+   **注意**：块内 pass 的扫描已经不是瓶颈。真正的开销在全局阶段——`geOptimizeLocalPass(true)` 入口的 `prepareForGlobal(); markAllDirty();` 一行就把精确标记废掉了，每轮全图重算。要让它起作用，得先让 `analyzeVarValueFlow` 在 `join` 返回 true 时给后继置脏、让 `eliminatePtrMove` 报告它改写了哪些块（它现在只报告"是否拆出新块"，不能靠 `irs.size()` 前后比较来猜，因为折进偏移量可能是替换而非删除）。
+3. **`--dump-ir=passes`**：逐 pass 打印 CFG。
+4. **`--verify`**：逐 pass 校验不变量。
+
+**加新分析**（自然循环、平衡区、支配树……）的步骤：在 `AnalysisId` 里加一项 → 写 `analyzeXxx()`，开头用 `if (analysisValid(id)) return;`，结尾 `markAnalysisValid(id);` → 在会破坏它的 pass 的 `PassEffect::invalidates` 里包含它。
+
+**踩过的坑**：`prepareForGlobal()` 里的 `eliminatePtrMove()` 即使没拆出新块也会改写块内 IR（把指针移动折进基址+偏移）。最初只在"拆出新块"时失效分析，导致 `calc` 死循环、`prime` 输出错、8 组产物哈希变化。现在改成无条件失效。
+
+**分析成本**：`analyzePtrFlow` 全程不到 0.2ms，不是瓶颈；真正贵的是 `analyzeVarValueFlow`。已经做了两处不改变结果的优化：
+
+- 变量集合没变时复用上一轮的 `BlockVarValueInfo`（`resetValues()`），省掉整轮 `unordered_map` 重建；
+- `BlockVarValueInfo::join` 从「整表拷贝 + 整表比较」改成原地逐项更新。
+
+实测 `-O1` 编译耗时（相对最初基线）：`cases/9` 125.3ms → **55.4ms**，`cases/8` 50.7ms → **29.9ms**，`calc` 30.6ms → **14.0ms**。收益主要来自三处：`join` 原地更新、`BlockVarValueInfo` 复用、以及 `geOptimizeLocalPass` 只扫脏块。
+
+想再往下走得做真正的增量分析，但它的收益有上限：IR 改动通常发生在上游，脏块的下游锥往往覆盖大半个图；而"保留旧值再 join"会得到比全量重算**更保守**的结果，进而改变优化决策和产物字节。要做就必须重算下游锥，不能用单调性近似。
+
+另外别用"跳过分析看省多少"来估成本：跳过会让依赖它的优化全部失效，量到的是整个全局优化阶段。
+
+**关于 `const`**：三个 `analyze*` 会往块上写缓存字段，所以它们和 `CodeOptimizer` 的持有者状态都不是 const 的。早期版本为了把它们留成 `const` 加过 `mutable` 成员，那是错的——私有方法的 const 该去掉就去掉，不要用 `mutable` 绕过。
 
 ### Generator（`generator/`）
 

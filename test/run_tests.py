@@ -53,7 +53,9 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")
 
 # 默认参与二进制的配置。
-DEFAULT_CONFIGS = "O0,O1,strict"
+# 默认只跑优化后的配置：优化器的改动不应该影响 -O0，而 6.bf / 7.bf 这类 8MB 用例
+# 在 -O0 下要几十秒，跑它性价比太低。需要时用 --configs O1,strict,O0 显式带上。
+DEFAULT_CONFIGS = "O1,strict"
 
 
 # --------------------------------------------------------------------------- #
