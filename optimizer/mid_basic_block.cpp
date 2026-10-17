@@ -882,6 +882,11 @@ std::unique_ptr<MidBasicBlock> MidBasicBlock::hoistLoopConstAssign() {
     newBlock->succN = this;
     if (isUsed) {
         newBlock->succY = succN;    // 如果展开了一次
+        // 新边必须登记到对方的 preds，否则依赖前驱的 pass（getZeroVarInfoLocally、
+        // mergeAndRemove 的 preds.size() 判断）会读到不完整的信息。
+        if (succN != nullptr) {
+            succN->preds.push_back(newBlock.get());
+        }
     }
     return newBlock;
 }

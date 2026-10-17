@@ -51,26 +51,21 @@ private:
     // 先决条件：基本块通用优化
     bool hoistLocalLoopConstAssign(bool printInfo);
 
-    // 在全局优化前折叠跳转
-    // 返回 true 表示产生优化
-    // 先决条件：基本块通用优化
-    // 注意：这只在全局优化前有效，此时这些跳转的测试变量肯定是同一个
-    bool foldJumpBeforeGlobal(bool printInfo);
+    // 折叠"只含一条条件跳转"的基本块，把跳转前提到前驱。
+    // useGlobalInfo 只影响三件事：
+    //   - 处理哪些块（全局信息阶段之前处理没有 varValueInfo 的块，之后处理已有信息的块）；
+    //   - 是否要求前驱与本块测试同一个变量（全局阶段才要求）；
+    //   - 前驱怎么摘除（全局阶段只摘被内联的，早期阶段整块清空）。
+    // 返回 true 表示产生优化。
+    // 先决条件：useGlobalInfo 为 true 时需要基本块已带全局值信息。
+    bool foldJump(bool useGlobalInfo, bool printInfo);
 
-    // 在全局优化后折叠跳转
-    // 返回 true 表示产生优化
-    // 先决条件：基于全局信息的基本块通用优化
-    bool foldJumpWithGlobalInfo(bool printInfo);
-
-    // 基本块通用优化，基于值传播 + 规范化哈希 + 延迟赋值
-    // 处理常量折叠/传播、无效赋值消除、公共子表达式（仅交换律）
-    // 先决条件：无
-    bool geOptimizeLocal(bool printInfo);
-
-    // 基于全局信息的基本块的通用局部优化，基于值传播 + 规范化哈希 + 延迟赋值
-    // 处理常量折叠/传播、无效赋值消除、公共子表达式（仅交换律）
-    // 先决条件：无（函数开头自动处理先决条件）
-    bool geOptimizeLocalWithGlobalInfo(bool printInfo);
+    // 基本块通用优化，基于值传播 + 规范化哈希 + 延迟赋值。
+    // 处理常量折叠/传播、无效赋值消除、公共子表达式（仅交换律）。
+    // useGlobalInfo 为 false 时用局部零值判定，只处理没有 varValueInfo 的块；
+    // 为 true 时先 prepareForGlobal()，用块上的全局值信息，并在合并后重算。
+    // 返回 true 表示产生优化。
+    bool geOptimizeLocalPass(bool useGlobalInfo, bool printInfo);
 
     // 基于活跃变量信息消除冗余赋值
     // 先决条件：无（函数开头自动处理先决条件）

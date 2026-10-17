@@ -99,9 +99,9 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
     // 我已经不知道我在写什么了
     // 说实话写得挺烂的，性能也不行，会做很多无用功，我摆烂了
     eliminateLocalLoop(true, isStrict, printInfo);
-    geOptimizeLocal(printInfo);
-    if (foldJumpBeforeGlobal(printInfo)) {
-        geOptimizeLocal(printInfo);
+    geOptimizeLocalPass(false, printInfo);
+    if (foldJump(false, printInfo)) {
+        geOptimizeLocalPass(false, printInfo);
     }
     checkpoint("stage:local-loop");
 
@@ -109,9 +109,9 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
         if (!eliminateLocalLoop(true, isStrict, printInfo)) {
             break;
         }
-        geOptimizeLocal(printInfo);
-        if (foldJumpBeforeGlobal(printInfo)) {
-            geOptimizeLocal(printInfo);
+        geOptimizeLocalPass(false, printInfo);
+        if (foldJump(false, printInfo)) {
+            geOptimizeLocalPass(false, printInfo);
         }
     }
     checkpoint("stage:local-fixpoint");
@@ -120,31 +120,31 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
         if (!hoistLocalLoopConstAssign(printInfo)) {
             break;
         }
-        geOptimizeLocal(printInfo);
+        geOptimizeLocalPass(false, printInfo);
         if (eliminateLocalLoop(true, isStrict, printInfo)) {
-            geOptimizeLocal(printInfo);
+            geOptimizeLocalPass(false, printInfo);
         }
-        if (foldJumpBeforeGlobal(printInfo)) {
-            geOptimizeLocal(printInfo);
+        if (foldJump(false, printInfo)) {
+            geOptimizeLocalPass(false, printInfo);
         }
     }
     checkpoint("stage:hoist");
 
-    geOptimizeLocalWithGlobalInfo(printInfo);
+    geOptimizeLocalPass(true, printInfo);
     checkpoint("stage:global-local");
     if (std::ranges::any_of(m_basicBlocks, [](auto &block) { return !block->isPtrStateUnknown(); })) {
         while (true) {
             bool flag = false;
             if (eliminateLocalLoop(false, isStrict, printInfo)) {
-                geOptimizeLocalWithGlobalInfo(printInfo);
+                geOptimizeLocalPass(true, printInfo);
                 flag = true;
             }
             if (hoistLocalLoopConstAssign(printInfo)) {
-                geOptimizeLocalWithGlobalInfo(printInfo);
+                geOptimizeLocalPass(true, printInfo);
                 flag = true;
             }
-            if (foldJumpWithGlobalInfo(printInfo)) {
-                geOptimizeLocalWithGlobalInfo(printInfo);
+            if (foldJump(true, printInfo)) {
+                geOptimizeLocalPass(true, printInfo);
                 flag = true;
             }
             if (!flag) break;
@@ -155,19 +155,19 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
                 if (!eliminateAssignWithLiveVarInfo(printInfo)) {
                     break;
                 }
-                geOptimizeLocalWithGlobalInfo(printInfo);
+                geOptimizeLocalPass(true, printInfo);
                 while (true) {
                     bool flag = false;
                     if (eliminateLocalLoop(false, isStrict, printInfo)) {
-                        geOptimizeLocalWithGlobalInfo(printInfo);
+                        geOptimizeLocalPass(true, printInfo);
                         flag = true;
                     }
                     if (hoistLocalLoopConstAssign(printInfo)) {
-                        geOptimizeLocalWithGlobalInfo(printInfo);
+                        geOptimizeLocalPass(true, printInfo);
                         flag = true;
                     }
-                    if (foldJumpWithGlobalInfo(printInfo)) {
-                        geOptimizeLocalWithGlobalInfo(printInfo);
+                    if (foldJump(true, printInfo)) {
+                        geOptimizeLocalPass(true, printInfo);
                         flag = true;
                     }
                     if (!flag) break;
@@ -419,36 +419,71 @@ bool CodeOptimizer::hoistLocalLoopConstAssign(bool printInfo) {
     return hasOptimization;
 }
 
-bool CodeOptimizer::foldJumpBeforeGlobal(bool printInfo) {
+bool CodeOptimizer::foldJump(bool useGlobalInfo, bool printInfo) {
+    // 两个旧版本（foldJumpBeforeGlobal / foldJumpWithGlobalInfo）的差异只有三处，
+    // 全部由 useGlobalInfo 决定，剩下的是同一段代码。
+    const char* const passName = useGlobalInfo ? "foldJumpAfterGlobal" : "foldJumpBeforeGlobal";
     bool hasOptimization = false;
     for (auto& block : m_basicBlocks) {
-        if (block->varValueInfo == nullptr && block->irs.size() == 1 && (block->irs.back().type == OpType::JZ || block->irs.back().type == OpType::JNZ)) {
-            for (auto* pred : block->preds) {
-                if (pred->irs.empty() || pred->irs.back().type != OpType::JZ && pred->irs.back().type != OpType::JNZ) {
-                    pred->irs.push_back(block->irs.back());
-                    pred->succY = block->succY;
+        if ((block->varValueInfo != nullptr) != useGlobalInfo) {
+            continue;
+        }
+        if (block->irs.size() != 1) {
+            continue;
+        }
+        const auto blockJump = block->irs.back().type;
+        if (blockJump != OpType::JZ && blockJump != OpType::JNZ) {
+            continue;
+        }
+
+        std::unordered_set<MidBasicBlock*> mergedBlocks;
+        for (auto* pred : block->preds) {
+            const bool predIsCondJmp = !pred->irs.empty()
+                && (pred->irs.back().type == OpType::JZ || pred->irs.back().type == OpType::JNZ);
+            if (!predIsCondJmp) {
+                // 前驱不是条件跳转，直接内联
+                pred->irs.push_back(block->irs.back());
+                pred->succY = block->succY;
+                pred->succN = block->succN;
+                block->succY->preds.push_back(pred);
+                block->succN->preds.push_back(pred);
+                mergedBlocks.insert(pred);
+                continue;
+            }
+            if (useGlobalInfo && !(pred->irs.back().arg1 == block->irs.back().arg1)) {
+                // 进入全局信息阶段后测试变量可能已被改写，必须确认是同一个才能内联
+                continue;
+            }
+            const bool samePolarity = (pred->irs.back().type == OpType::JZ) == (blockJump == OpType::JZ);
+            if (samePolarity) {
+                if (pred->succN == block.get()) {
                     pred->succN = block->succN;
-                    block->succY->preds.push_back(pred);
                     block->succN->preds.push_back(pred);
-                } else if (pred->irs.back().type == OpType::JZ && block->irs.back().type == OpType::JZ
-                    || pred->irs.back().type == OpType::JNZ && block->irs.back().type == OpType::JNZ) {
-                    if (pred->succN == block.get()) {
-                        pred->succN = block->succN;
-                        block->succN->preds.push_back(pred);
-                    } else {
-                        pred->succY = block->succY;
-                        block->succY->preds.push_back(pred);
-                    }
                 } else {
-                    if (pred->succN == block.get()) {
-                        pred->succN = block->succY;
-                        block->succY->preds.push_back(pred);
-                    } else {
-                        pred->succY = block->succN;
-                        block->succN->preds.push_back(pred);
-                    }
+                    pred->succY = block->succY;
+                    block->succY->preds.push_back(pred);
+                }
+            } else {
+                if (pred->succN == block.get()) {
+                    pred->succN = block->succY;
+                    block->succY->preds.push_back(pred);
+                } else {
+                    pred->succY = block->succN;
+                    block->succN->preds.push_back(pred);
                 }
             }
+            mergedBlocks.insert(pred);
+        }
+
+        if (useGlobalInfo) {
+            // 只摘掉真正被内联的前驱；一个都没内联时视为本块没变化
+            if (mergedBlocks.empty()) {
+                continue;
+            }
+            std::erase_if(block->preds, [&mergedBlocks](auto* pred) { return mergedBlocks.contains(pred); });
+            hasOptimization = true;
+        } else {
+            // 早期阶段所有前驱都会被内联，整块清空
             block->preds.clear();
             hasOptimization = true;
         }
@@ -456,130 +491,59 @@ bool CodeOptimizer::foldJumpBeforeGlobal(bool printInfo) {
     if (hasOptimization) {
         mergeAndRemove();
         if (printInfo) {
-            std::cout << "foldJumpBeforeGlobal: success, numIR = " << countIRs() << "\n";
+            std::cout << passName << ": success, numIR = " << countIRs() << "\n";
         }
     } else if (printInfo) {
-        std::cout << "foldJumpBeforeGlobal: no change\n";
+        std::cout << passName << ": no change\n";
     }
     return hasOptimization;
 }
 
-bool CodeOptimizer::foldJumpWithGlobalInfo(bool printInfo) {
-    bool hasOptimization = false;
-    for (auto& block : m_basicBlocks) {
-        if (block->varValueInfo != nullptr && block->irs.size() == 1 && (block->irs.back().type == OpType::JZ || block->irs.back().type == OpType::JNZ)) {
-            std::unordered_set<MidBasicBlock *> mergedBlocks;
-            for (auto *pred : block->preds) {
-                if (pred->irs.empty() || pred->irs.back().type != OpType::JZ && pred->irs.back().type != OpType::JNZ) {
-                    // 前驱不是条件跳转，直接内联
-                    pred->irs.push_back(block->irs.back());
-                    pred->succY = block->succY;
-                    pred->succN = block->succN;
-                    block->succY->preds.push_back(pred);
-                    block->succN->preds.push_back(pred);
-                    mergedBlocks.insert(pred);
-                } else if (pred->irs.back().arg1 == block->irs.back().arg1) {
-                    // 必须是同一个测试变量才能内联
-                    if (pred->irs.back().type == OpType::JZ && block->irs.back().type == OpType::JZ
-                        || pred->irs.back().type == OpType::JNZ && block->irs.back().type == OpType::JNZ) {
-                        if (pred->succN == block.get()) {
-                            pred->succN = block->succN;
-                            block->succN->preds.push_back(pred);
-                        } else {
-                            pred->succY = block->succY;
-                            block->succY->preds.push_back(pred);
-                        }
-                    } else {
-                        if (pred->succN == block.get()) {
-                            pred->succN = block->succY;
-                            block->succY->preds.push_back(pred);
-                        } else {
-                            pred->succY = block->succN;
-                            block->succN->preds.push_back(pred);
-                        }
-                    }
-                    mergedBlocks.insert(pred);
-                }
-            }
-            if (!mergedBlocks.empty()) {
-                std::erase_if(block->preds, [&mergedBlocks](auto *pred) { return mergedBlocks.contains(pred); });
-                hasOptimization = true;
-            }
-        }
+bool CodeOptimizer::geOptimizeLocalPass(bool useGlobalInfo, bool printInfo) {
+    // 两个旧版本（geOptimizeLocal / geOptimizeLocalWithGlobalInfo）的差别只有：
+    // 处理哪些块、值信息从哪来、合并后要不要重算全局信息。骨架完全一致。
+    const char* const passName = useGlobalInfo ? "optimizeLocalWithGlobalInfo" : "optimizeLocal";
+    if (useGlobalInfo) {
+        prepareForGlobal();
     }
-    if (hasOptimization) {
-        mergeAndRemove();
-        if (printInfo) {
-            std::cout << "foldJumpAfterGlobal: success, numIR = " << countIRs() << "\n";
-        }
-    } else if (printInfo) {
-        std::cout << "foldJumpAfterGlobal: no change\n";
-    }
-    return hasOptimization;
-}
-
-bool CodeOptimizer::geOptimizeLocal(bool printInfo) {
     bool hasOptimization = false;
-    // 第一个基本块时扫描所有变量，设成0
-    // 其他基本块的走局部零判定
     while (true) {
-        bool hasOptimization1 = false;
+        bool changed = false;
         for (auto& block : m_basicBlocks) {
-            // 如果这个块已经有全局信息了，再在这个分支里优化就是错误
-            if (block->varValueInfo != nullptr) {
+            if ((block->varValueInfo != nullptr) != useGlobalInfo) {
                 continue;
             }
-            if (!block->preds.empty()) {
-                if (block->generalOptimize({{0, block->getZeroVarInfoLocally()}})) {
-                    hasOptimization1 = true;
-                }
+            bool changedThisBlock = false;
+            if (useGlobalInfo) {
+                changedThisBlock = block->generalOptimize(block->varValueInfo->in);
+            } else if (!block->preds.empty()) {
+                // 非入口块：只能靠前驱的条件跳转判断零值
+                changedThisBlock = block->generalOptimize({{0, block->getZeroVarInfoLocally()}});
             } else {
+                // 入口块：所有变量初始为 0
                 std::unordered_map<int32_t, VarValueInfo> info;
                 for (auto offset : block->getVars()) {
                     info[offset] = VarValueInfo(VarValueInfo::exact(0));
                 }
-                if (block->generalOptimize(info)) {
-                    hasOptimization1 = true;
-                }
+                changedThisBlock = block->generalOptimize(info);
+            }
+            if (changedThisBlock) {
+                changed = true;
             }
         }
-        if (!hasOptimization1) {
+        if (!changed) {
             if (printInfo) {
                 if (hasOptimization) {
-                    std::cout << "optimizeLocal: success, numIR = " << countIRs() << "\n";
+                    std::cout << passName << ": success, numIR = " << countIRs() << "\n";
                 } else {
-                    std::cout << "optimizeLocal: no change\n";
+                    std::cout << passName << ": no change\n";
                 }
             }
             return hasOptimization;
         }
         hasOptimization = true;
-        mergeAndRemove();
-    }
-}
-
-bool CodeOptimizer::geOptimizeLocalWithGlobalInfo(bool printInfo) {
-    prepareForGlobal();
-    bool hasOptimization = false;
-    while (true) {
-        bool hasOptimization1 = false;
-        for (auto& block : m_basicBlocks) {
-            if (block->varValueInfo != nullptr && block->generalOptimize(block->varValueInfo->in)) {
-                hasOptimization1 = true;
-            }
-        }
-        if (!hasOptimization1) {
-            if (printInfo) {
-                if (hasOptimization) {
-                    std::cout << "optimizeLocalWithGlobalInfo: success, numIR = " << countIRs() << "\n";
-                } else {
-                    std::cout << "optimizeLocalWithGlobalInfo: no change\n";
-                }
-            }
-            return hasOptimization;
-        }
-        hasOptimization = true;
-        if (mergeAndRemove()) {
+        const bool merged = mergeAndRemove();
+        if (useGlobalInfo && merged) {
             prepareForGlobal();
         }
     }

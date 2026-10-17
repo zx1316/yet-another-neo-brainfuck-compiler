@@ -73,7 +73,7 @@ cmake --build cmake-build-release-clang
 - 块按序号编号（`B0`、`B1`…），前驱后继也打印编号，**不打指针地址**，所以两次 dump 可以直接做文本 diff。
 - `--verify` 检查：后继在图内、末尾跳转形态与 `succY` 一致、前驱/后继双向一致、`ptrOut == ptrIn + ptrDelta`。
 
-`--verify` 目前能稳定复现一个**真实缺陷**：`calc`、`hanoi2`、`mandelbrot` 在 `-O1`/`-Ostrict` 下，最终 CFG 里有基本块的后继没有登记到对方的 `preds`（`calc` 是 `B87 → B45` 缺一项，`mandelbrot` 13 处）。产物输出仍然正确，但 `preds` 不完整会让依赖前驱的 pass（`getZeroVarInfoLocally`、`mergeAndRemove`）读到不完整信息。这一步只负责暴露，未修。
+`--verify` 已经把 `preds` 的一处真实缺陷暴露并修掉：`hoistLoopConstAssign` 在"常量赋值被循环内引用、需要先展开一次"的分支里把外提节点的 `succY` 接到循环后继，却没有把外提节点登记进对方的 `preds`。`mergeAndRemove` 用 `succN->preds.size() == 1` 判断能否合并，`preds` 少一项就可能在本不该合并时合并，属于硬缺陷。修复后 90 组扫描全部通过，产物字节不变。
 
 ## 验证改动
 
@@ -194,11 +194,11 @@ uv run --no-project python test/run_tests.py
 `CodeOptimizer::optimize()`（`code_optimizer.cpp`）是手工编排的定点循环序列，不是 pass manager。实际顺序：
 
 1. `O0` 直接返回。
-2. `eliminateLocalLoop` → `geOptimizeLocal` → `foldJumpBeforeGlobal`。
-3. 定点：`eliminateLocalLoop` + `geOptimizeLocal` + `foldJumpBeforeGlobal`。
-4. 定点：`hoistLocalLoopConstAssign` + `geOptimizeLocal` + `eliminateLocalLoop` + `foldJumpBeforeGlobal`。
-5. `geOptimizeLocalWithGlobalInfo`。
-6. 若存在指针状态已知的块：定点跑 `eliminateLocalLoop(false)` / `hoistLocalLoopConstAssign` / `foldJumpWithGlobalInfo`，每次后接 `geOptimizeLocalWithGlobalInfo`。
+2. `eliminateLocalLoop` → `geOptimizeLocalPass(false)` → `foldJump(false)`。
+3. 定点：`eliminateLocalLoop` + `geOptimizeLocalPass(false)` + `foldJump(false)`。
+4. 定点：`hoistLocalLoopConstAssign` + `geOptimizeLocalPass(false)` + `eliminateLocalLoop` + `foldJump(false)`。
+5. `geOptimizeLocalPass(true)`。
+6. 若存在指针状态已知的块：定点跑 `eliminateLocalLoop(false)` / `hoistLocalLoopConstAssign` / `foldJump(true)`，每次后接 `geOptimizeLocalPass(true)`。
 7. 若**所有**块指针状态已知：加 `eliminateAssignWithLiveVarInfo` 参与定点，最后做**变量紧凑化**——收集所有块用到的 offset，排序后经 `renameVar` 重映射成连续下标，并把 `m_tapeSize` 改成 offset 个数。这就是 `-mmem-size` 在全局指针可定时「被自动忽略」的原因。
 8. 否则：把负向最小 offset 记入 `m_minNegOffset`，用于平移初始指针。
 
@@ -208,6 +208,10 @@ uv run --no-project python test/run_tests.py
 - `analyzeLiveVar` 要求所有块指针状态已知、且指针移动已消除，否则结果错。改调用顺序前必读 `code_optimizer.h`。
 - `prepareForGlobal()` = `analyzePtrFlow` + `eliminatePtrMove` + `analyzeVarValueFlow`。
 - **`prepareForGlobal()` 可能往 `m_basicBlocks` 追加新块**（`eliminatePtrMove` 会把爆指针状态的跳转拆成新块并 append 到末尾）。不要跨它持有块的指针或下标。
+
+`foldJump(useGlobalInfo, ...)` 和 `geOptimizeLocalPass(useGlobalInfo, ...)` 各自是"局部/全局"两个旧版本的合并结果，差异由一个开关表达（见函数上方注释）。**不要再拆回两个函数**——它们原本就是同一段代码的两个副本。
+
+**分析成本实测**（临时插桩，已撤）：`analyzePtrFlow` 全程不到 0.2ms，**不是瓶颈**；真正贵的是 `analyzeVarValueFlow`，变量多的程序上占编译时间 37%~64%（`cases/9` 是 75ms / 117ms）。方向是把它做成增量分析而不是加缓存——两次调用之间 IR 确实变了，缓存命中率极低。注意别用"跳过分析看省多少"来估成本：跳过会让依赖它的优化全部失效，量到的是整个全局优化阶段。
 
 ### Generator（`generator/`）
 
