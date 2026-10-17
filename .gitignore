@@ -38,7 +38,7 @@
 *.exe
 *.out
 # 不要忽略 cases 中的 out
-!cases/*.out
+!test/cases/*.out
 *.app
 
 # Build directories
@@ -71,7 +71,7 @@ Testing/
 .cache/
 
 .idea/
-cases_large/
+test/cases_large/
 cmake-*/
 
 # Regression test artifacts (local safety net for refactoring; re-recorded
@@ -81,3 +81,4 @@ test/baseline-cache/
 test/out/
 
 .claude/
+local_docs/

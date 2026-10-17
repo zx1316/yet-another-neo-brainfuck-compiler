@@ -139,7 +139,10 @@ static OptimizationLevel getOptimizationLevel(const std::unordered_map<int32_t, 
     if (opts.contains(OPT_O_STRICT)) {
         return OptimizationLevel::O_STRICT;
     }
-    return OptimizationLevel::O0;
+    if (opts.contains(OPT_O0)) {
+        return OptimizationLevel::O0;
+    }
+    return OptimizationLevel::O1;
 }
 
 static OutputFormat getOutputFormat(const std::unordered_map<int32_t, std::string_view>& opts) {

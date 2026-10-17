@@ -18,7 +18,7 @@ public:
     void generate(OptimizationLevel level, bool isModern, bool printInfo, std::ostream& os);
 
     // 重排列中间代码用于最终生成，仅能在优化开启时调用，否则出错
-    // todo 这个应该放到优化器里去做
+    // todo 感觉这个应该放到优化器里去做
     void rearrangeIRs(bool printInfo) const;
 
     // IR -> ASM
