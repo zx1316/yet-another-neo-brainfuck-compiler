@@ -8,10 +8,10 @@
 #include "error.h"
 
 struct Option {
-    const std::string name;
-    const std::string longName;
-    const std::string description;
-    const std::string argValName;
+    const std::string_view name;
+    const std::string_view longName;
+    const std::string_view description;
+    const std::string_view argValName;
     std::string (* const validator)(std::string_view) = nullptr;
 };
 

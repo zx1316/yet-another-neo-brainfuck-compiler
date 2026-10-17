@@ -36,7 +36,7 @@ static constexpr auto HELP_INTRO = "OVERVIEW: Brainfuck compiler\n\n"
 
 static constexpr auto VER_STR = "Yet Another Neo Brainfuck Compiler version 1.0.0\nTarget: x86_64-pc-windows\n";
 
-static const auto OPTIONS = std::array{
+static constexpr auto OPTIONS = std::array{
     Option{
         .name = "-falign-loops",
         .description = "N must be 0 or 16. Align loops to the boundary (default 16)",
@@ -50,7 +50,7 @@ static const auto OPTIONS = std::array{
     },
     Option{
         .name = "-fclj",
-        .description = "CMP-LEA-JNZ (experimental)"
+        .description = "CMP-LEA-JNZ (experimental, current default is ADD-CMP-JNZ)"
     },
     Option{
         .name = "-help",
@@ -59,7 +59,7 @@ static const auto OPTIONS = std::array{
     },
     Option{
         .name = "-mmem-size",
-        .description = "Set the runtime memory size in bytes (1~2147483647, default" DEFAULT_MEM_SIZE_STR "). This does not include the guard space required by aggressive optimization. When optimization is enabled and the pointer position is globally determinable, this option is automatically ignored.",
+        .description = "Set the runtime memory size in bytes (1~2147483647, default " DEFAULT_MEM_SIZE_STR "). This does not include the guard space required by aggressive optimization. When optimization is enabled and the pointer position is globally determinable, this option is automatically ignored.",
         .argValName = "value",
         .validator = [](std::string_view arg) {
             int32_t memSize = 0;
