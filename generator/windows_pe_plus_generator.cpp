@@ -1,7 +1,9 @@
 #include "windows_pe_plus_generator.h"
 
+#include <iomanip>
 #include <iostream>
 
+#include "../debug.h"
 #include "../optimizer/code_optimizer.h"
 
 std::array<unsigned char, 990> WindowsPEPlusGenerator::s_legacyPEPlusRuntimeData = {
@@ -225,6 +227,7 @@ void WindowsPEPlusGenerator::generate(OptimizationLevel level, bool isModern, bo
     generateASM(level, printInfo);
     placeBasicBlocks();
 	setBlocksRelJmp();
+    dumpASM();
     writeTo(os, isModern);
 	if (printInfo) {
 		std::cout << "numASM = " << countASMs() << '\n';
@@ -459,13 +462,73 @@ void WindowsPEPlusGenerator::modernWriteTo(std::ostream& os) const {
     os.write(reinterpret_cast<const char*>(s_modernPEPlusRData.data()), s_modernPEPlusRData.size());
 }
 
-void WindowsPEPlusGenerator::printIRAndASM() const {
-    int32_t i = 0;
-    int32_t ip = 0;
-    for (auto* block : m_orderedBlocks) {
-        std::cout << "id=" << i << ", ip=" << ip << '\n';
-        std::cout << *block << "\n\n";
-        i++;
+void WindowsPEPlusGenerator::dumpASM() const {
+    if (!dbg::wantAsm()) {
+        return;
+    }
+
+    std::int32_t totalBytes = 0;
+    std::int64_t totalInsts = 0;
+    for (const auto* block : m_orderedBlocks) {
+        totalBytes += block->codeSize();
+        totalInsts += static_cast<std::int64_t>(block->asms().size());
+    }
+
+    auto& os = dbg::out();
+    os << "===== ASM blocks=" << m_orderedBlocks.size()
+       << " insts=" << totalInsts << " bytes=" << totalBytes << " =====\n";
+
+    std::int32_t ip = 0;
+    X64EncodingCtx ctx;
+    for (std::size_t i = 0; i < m_orderedBlocks.size(); ++i) {
+        const auto* block = m_orderedBlocks[i];
+        const auto& asms = block->asms();
+        os << 'B' << i << "  ip=0x" << std::hex << ip << std::dec
+           << "  size=" << block->codeSize()
+           << "  insts=" << asms.size()
+           << "  spills=" << block->spillCount() << '\n';
+        for (std::size_t k = 0; k < asms.size(); ++k) {
+            os << "    [" << std::setw(4) << k << "] " << asms[k] << '\n';
+        }
+
+        // 逐个基本块编码一遍，把机器码一并打出来。finalEncode 是 const 且只往
+        // 传入的 ctx 追加字节，重复调用不会影响后面的 writeTo。
+        ctx.clear();
+        block->finalEncode(ctx);
+        os << "    bytes:";
+        for (std::int32_t b = 0; b < ctx.size(); ++b) {
+            if (b % 16 == 0) {
+                os << "\n      ";
+            }
+            os << ' ' << std::hex << std::setw(2) << std::setfill('0')
+               << static_cast<int32_t>(ctx.data()[b]) << std::dec << std::setfill(' ');
+        }
+        os << '\n';
+
         ip += block->codeSize();
     }
+    os.flush();
+}
+
+void WindowsPEPlusGenerator::dumpBlocks() const {
+    if (!dbg::wantAsm()) {
+        return;
+    }
+
+    std::int64_t totalInsts = 0;
+    for (const auto& block : m_basicBlocks) {
+        totalInsts += static_cast<std::int64_t>(block->irs().size());
+    }
+
+    auto& os = dbg::out();
+    os << "===== BLOCKS(after rearrange) blocks=" << m_basicBlocks.size()
+       << " insts=" << totalInsts << " =====\n";
+    for (std::size_t i = 0; i < m_basicBlocks.size(); ++i) {
+        const auto& irs = m_basicBlocks[i]->irs();
+        os << 'B' << i << "  insts=" << irs.size() << '\n';
+        for (std::size_t k = 0; k < irs.size(); ++k) {
+            os << "    [" << std::setw(4) << k << "] " << irs[k] << '\n';
+        }
+    }
+    os.flush();
 }

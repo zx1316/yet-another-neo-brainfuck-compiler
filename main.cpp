@@ -1,4 +1,5 @@
 #include <filesystem>
+#include <format>
 #include <iostream>
 #include <fstream>
 #include <array>
@@ -8,6 +9,7 @@
 #include "optimizer/code_optimizer.h"
 #include "parser/neo_parser.h"
 #include "option.h"
+#include "debug.h"
 #include "error.h"
 
 namespace {
@@ -106,6 +108,19 @@ static constexpr auto OPTIONS = std::array{
         .name = "-v",
         .longName ="--version",
         .description = "Print version information"
+    },
+    Option{
+        .longName = "--dump-ir",
+        .description = "Dump the IR to stderr at the given checkpoints. <list> is a comma separated subset of: parse, final, stages, all",
+        .argValName = "list"
+    },
+    Option{
+        .longName = "--dump-asm",
+        .description = "Dump basic blocks, their instructions and encoded bytes to stderr"
+    },
+    Option{
+        .longName = "--verify",
+        .description = "Check CFG invariants at the dump checkpoints, report violations to stderr and fail if any"
     }
 };
 
@@ -122,6 +137,9 @@ namespace {
         OPT_OUT_FORMAT,
         OPT_PRINT_INFO,
         OPT_VERSION,
+        OPT_DUMP_IR,
+        OPT_DUMP_ASM,
+        OPT_VERIFY,
     };
 }
 
@@ -158,6 +176,18 @@ static OutputFormat getOutputFormat(const std::unordered_map<int32_t, std::strin
     return DEFAULT_OUT_FORMAT;
 }
 
+// --verify 在最终 CFG 上发现问题就让编译失败；中间检查点的违例只报告，
+// 因为有些 pass 会短暂留下不一致的 preds，后续 pass 会修好。
+static std::expected<void, Error> checkVerifyErrors(const CodeOptimizer& optimizer) {
+    if (!dbg::wantVerify() || optimizer.getFatalVerifyErrors() == 0) {
+        return {};
+    }
+    return std::unexpected(Error{
+        Error::VERIFY_ERR,
+        std::format("最终 CFG 有 {} 处不变量被违反，详情见 stderr", optimizer.getFatalVerifyErrors())
+    });
+}
+
 static std::expected<void, Error> compileAndSave(std::string_view outPathSv, OutputFormat outFormat, std::ifstream& input, int32_t memSize, OptimizationLevel level, bool printInfo) {
     auto outPath = std::filesystem::path(outPathSv);
     if (outFormat == OUT_C) {
@@ -174,7 +204,12 @@ static std::expected<void, Error> compileAndSave(std::string_view outPathSv, Out
         return std::unexpected(std::move(parsedResult.error()));
     }
     CodeOptimizer optimizer(*parsedResult, memSize);
+    optimizer.checkpoint("parse");
     optimizer.optimize(level, printInfo);
+    optimizer.checkpoint("final");
+    if (auto verifyErr = checkVerifyErrors(optimizer); !verifyErr) {
+        return verifyErr;
+    }
     WindowsPEPlusGenerator generator(optimizer.getBasicBlocks(), optimizer.getTapeSize(), optimizer.getInitOffset());
     std::ofstream output(outPath, std::ios::binary);
     if (!output) {
@@ -191,11 +226,17 @@ static std::expected<void, Error> compileAndExec(std::ifstream& input, int32_t m
     }
 
     CodeOptimizer optimizer(*parsedResult, memSize);
+    optimizer.checkpoint("parse");
     optimizer.optimize(level, printInfo);
+    optimizer.checkpoint("final");
+    if (auto verifyErr = checkVerifyErrors(optimizer); !verifyErr) {
+        return verifyErr;
+    }
     WindowsPEPlusGenerator generator(optimizer.getBasicBlocks(), optimizer.getTapeSize(), optimizer.getInitOffset());
     if (level != OptimizationLevel::O0) {
         generator.rearrangeIRs(printInfo);
     }
+    generator.dumpBlocks();
     std::cout << "interpreting:\n";
     return Interpreter::interpret(
         generator.getBasicBlocks().front().get(),
@@ -230,6 +271,17 @@ static std::expected<void, Error> mainCompile(int argc, char* argv[]) {
     auto memSize = getMemSize(optArgs);
     auto optimizeLevel = getOptimizationLevel(optArgs);
     bool printInfo = optArgs.contains(OPT_PRINT_INFO);
+
+    dbg::Options debugOptions;
+    debugOptions.asmDump = optArgs.contains(OPT_DUMP_ASM);
+    debugOptions.verify = optArgs.contains(OPT_VERIFY);
+    if (auto it = optArgs.find(OPT_DUMP_IR); it != optArgs.end()) {
+        if (auto err = dbg::applyStageList(debugOptions, it->second); !err.empty()) {
+            return std::unexpected(Error{Error::ARG_ERR, std::move(err)});
+        }
+    }
+    dbg::configure(debugOptions);
+
     if (auto outFilePathIt = optArgs.find(OPT_OUT); outFilePathIt != optArgs.end()) {
         return compileAndSave(outFilePathIt->second, getOutputFormat(optArgs), input, memSize, optimizeLevel, printInfo);
     }

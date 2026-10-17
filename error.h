@@ -16,6 +16,7 @@ struct Error {
         OUTPUT_FILE_ERR,
         PARSE_ERR,
         INTERPRET_ERR,
+        VERIFY_ERR,
         ARG_ERR = 10000
     };
 

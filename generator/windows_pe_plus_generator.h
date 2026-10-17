@@ -33,8 +33,12 @@ public:
     // 写入 PE+ 文件，先决条件：placeBasicBlocks
     void writeTo(std::ostream& os, bool isModern) const;
 
-    // 打印中间代码与 ASM
-    void printIRAndASM() const;
+    // 按 --dump-asm 输出放置后的基本块：块号、IP、代码大小、指令与机器码字节
+    void dumpASM() const;
+
+    // 按 --dump-asm 输出重排后的 IR（未经放置，按 m_basicBlocks 顺序）。
+    // 解释执行路径不会走 generate()，用这个看重排结果。
+    void dumpBlocks() const;
 
     static constexpr int32_t STACK_SPILL_OFFSET = 40;
 

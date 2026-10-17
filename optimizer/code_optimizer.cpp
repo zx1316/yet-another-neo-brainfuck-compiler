@@ -7,6 +7,9 @@
 #include <set>
 #include <unordered_set>
 
+#include "cfg_debug.h"
+#include "../debug.h"
+
 using OpType = Quadruple::OpType;
 using ArgType = QuadrupleArg::ArgType;
 
@@ -100,6 +103,7 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
     if (foldJumpBeforeGlobal(printInfo)) {
         geOptimizeLocal(printInfo);
     }
+    checkpoint("stage:local-loop");
 
     while (true) {
         if (!eliminateLocalLoop(true, isStrict, printInfo)) {
@@ -110,6 +114,7 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
             geOptimizeLocal(printInfo);
         }
     }
+    checkpoint("stage:local-fixpoint");
 
     while (true) {
         if (!hoistLocalLoopConstAssign(printInfo)) {
@@ -123,8 +128,10 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
             geOptimizeLocal(printInfo);
         }
     }
+    checkpoint("stage:hoist");
 
     geOptimizeLocalWithGlobalInfo(printInfo);
+    checkpoint("stage:global-local");
     if (std::ranges::any_of(m_basicBlocks, [](auto &block) { return !block->isPtrStateUnknown(); })) {
         while (true) {
             bool flag = false;
@@ -196,6 +203,7 @@ void CodeOptimizer::optimize(OptimizationLevel level, bool printInfo) {
             m_minNegOffset = std::min(m_minNegOffset, minNeg);
         }
     }
+    checkpoint("stage:done");
 }
 
 int32_t CodeOptimizer::checkInnermostBalancedLoop() const {
@@ -210,15 +218,23 @@ int32_t CodeOptimizer::checkInnermostBalancedLoop() const {
 }
 
 void CodeOptimizer::printBasicBlocks() const {
-    for (auto& block : m_basicBlocks) {
-        std::cout << *block << "\n\n";
-    }
+    dumpCFG("printBasicBlocks", m_basicBlocks);
 }
 
 void CodeOptimizer::printBasicBlocksBrief() const {
-    for (auto& block : m_basicBlocks) {
-        block->printBrief(std::cout);
-        std::cout << "\n\n";
+    dumpCFG("printBasicBlocksBrief", m_basicBlocks, /*withInsts=*/false);
+}
+
+void CodeOptimizer::checkpoint(std::string_view stage) {
+    if (dbg::wantStage(stage)) {
+        dumpCFG(stage, m_basicBlocks);
+    }
+    if (dbg::wantVerify()) {
+        const int32_t errors = verifyCFG(stage, m_basicBlocks);
+        m_verifyErrors += errors;
+        if (stage == "final") {
+            m_verifyErrorsAtFinal += errors;
+        }
     }
 }
 

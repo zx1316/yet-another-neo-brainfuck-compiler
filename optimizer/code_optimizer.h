@@ -1,6 +1,8 @@
 #ifndef YETANOTHERNEOBRAINFUCKCOMPILER_CODE_OPTIMIZER_H
 #define YETANOTHERNEOBRAINFUCKCOMPILER_CODE_OPTIMIZER_H
 
+#include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "mid_basic_block.h"
@@ -18,6 +20,13 @@ public:
 
     // 一键代码优化
     void optimize(OptimizationLevel level, bool printInfo);
+
+    // 调试检查点：--dump-ir 命中时打印 CFG，--verify 时校验 CFG 不变量。
+    // 违反不变量的数量累计在 m_verifyErrors 里；其中"最终形态"的违例会阻止生成产物，
+    // 中间检查点的违例只报告（有些 pass 会短暂留下不一致的 preds，之后自行修好）。
+    void checkpoint(std::string_view stage);
+    [[nodiscard]] int32_t getVerifyErrors() const { return m_verifyErrors; }
+    [[nodiscard]] int32_t getFatalVerifyErrors() const { return m_verifyErrorsAtFinal; }
 
     // for debug only
     [[nodiscard]] int32_t checkInnermostBalancedLoop() const;
@@ -84,6 +93,8 @@ private:
     int32_t m_minNegOffset;
     int32_t m_maxPosOffset;
     int32_t m_tapeSize;
+    int32_t m_verifyErrors = 0;
+    int32_t m_verifyErrorsAtFinal = 0;
 };
 
 

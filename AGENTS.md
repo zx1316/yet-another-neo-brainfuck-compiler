@@ -50,6 +50,9 @@ cmake --build cmake-build-release-clang
 | `-help` / `--help`、`-v` / `--version` | | 帮助、版本 |
 | `-falign-loops=<N>` | 0 \| 16 | **只做参数校验，不产生任何效果** |
 | `-fclj` | | **无任何效果** |
+| `--dump-ir=<list>` | `parse` \| `final` \| `stages` \| `all` | 往 stderr 打印 CFG 检查点（逗号分隔可多选） |
+| `--dump-asm` | | 往 stderr 打印基本块、指令与编码后的机器码字节 |
+| `--verify` | | 检查 CFG 不变量；最终 CFG 有违例时编译失败（exit 5） |
 
 ### 必须知道的三个坑
 
@@ -59,7 +62,18 @@ cmake --build cmake-build-release-clang
 
 **3. `-falign-loops` 和 `-fclj` 是空壳。** 它们在选项表里注册、`-falign-loops` 还带校验器，但 `main.cpp` 从头到尾没有读过 `OPT_ALIGN_LOOPS` / `OPT_CLJ`。实测加不加这两个开关产物字节相同。
 
-退出码：`0` 成功；`1` 输入文件打不开；`2` 输出文件打不开；`3` 起为解析错误 `PARSE_ERR + argv索引`，`10000` 起为参数校验错误 `ARG_ERR + argv索引`。例：`-falign-loops=7` 位于 `argv[2]` 时退出码是 `5`。
+退出码：`0` 成功；`1` 输入文件打不开；`2` 输出文件打不开；`3` 起为解析错误 `PARSE_ERR + argv索引`；`5` 为 `--verify` 在最终 CFG 上发现不变量违例；`10000` 起为参数校验错误 `ARG_ERR + argv索引`。例：`-falign-loops=7` 位于 `argv[2]` 时退出码是 `5`（与 VERIFY_ERR 同为 5，靠 stderr 区分）。
+
+### 调试输出
+
+三个开关都写 **stderr**，因为解释执行模式下 stdout 属于被编译的 Brainfuck 程序。
+
+- `--dump-ir=parse` 看刚划分完基本块的原始 CFG；`final` 看交给生成器之前的形态；`stages` 看 `optimize()` 内部各阶段边界。
+- `--dump-asm` 在 `-o` 路径上打印放置后的基本块（IP、指令、机器码字节），在解释执行路径上打印重排后的 IR。
+- 块按序号编号（`B0`、`B1`…），前驱后继也打印编号，**不打指针地址**，所以两次 dump 可以直接做文本 diff。
+- `--verify` 检查：后继在图内、末尾跳转形态与 `succY` 一致、前驱/后继双向一致、`ptrOut == ptrIn + ptrDelta`。
+
+`--verify` 目前能稳定复现一个**真实缺陷**：`calc`、`hanoi2`、`mandelbrot` 在 `-O1`/`-Ostrict` 下，最终 CFG 里有基本块的后继没有登记到对方的 `preds`（`calc` 是 `B87 → B45` 缺一项，`mandelbrot` 13 处）。产物输出仍然正确，但 `preds` 不完整会让依赖前驱的 pass（`getZeroVarInfoLocally`、`mergeAndRemove`）读到不完整信息。这一步只负责暴露，未修。
 
 ## 验证改动
 

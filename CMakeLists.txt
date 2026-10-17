@@ -32,6 +32,8 @@ endif ()
 add_executable(bf-compiler main.cpp
         option.h
         option.cpp
+        debug.h
+        debug.cpp
         parser/neo_parser.h
         parser/neo_parser.cpp
         optimizer/optimization_level.h
@@ -39,6 +41,8 @@ add_executable(bf-compiler main.cpp
         optimizer/quadruple.h
         optimizer/mid_basic_block.cpp
         optimizer/mid_basic_block.h
+        optimizer/cfg_debug.h
+        optimizer/cfg_debug.cpp
         optimizer/ptr_state.h
         optimizer/code_optimizer.cpp
         optimizer/code_optimizer.h
