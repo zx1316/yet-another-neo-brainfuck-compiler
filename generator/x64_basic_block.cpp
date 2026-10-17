@@ -92,7 +92,7 @@ void X64BasicBlock::equivFlipCondJmp() {
 }
 
 void X64BasicBlock::placeJmp() {
-    m_asms.emplace_back(AsmOp::JMP);
+    m_asms.emplace_back(AsmOp::JMP, 0);
 }
 
 void X64BasicBlock::removeJmpIfJmpTo(int32_t target) {
@@ -139,8 +139,8 @@ bool X64BasicBlock::tryShortJmp(int32_t thisId, const int32_t* codePos) {
     bool changed = false;
     if (!m_lastJmpIsShort) {
         int32_t ip = codePos[thisId] + m_codeSize;
-        int32_t dest = codePos[lastAsm.imm.value()];
-        if (dest - ip > -129 && dest - ip < 128) {
+        int32_t dest = codePos[lastAsm.imm];
+        if (dest - ip >= INT8_MIN && dest - ip <= INT8_MAX) {
             m_codeSize -= lastAsm.op == AsmOp::JMP ? 3 : 4;
             m_lastJmpIsShort = true;
             changed = true;
@@ -149,8 +149,8 @@ bool X64BasicBlock::tryShortJmp(int32_t thisId, const int32_t* codePos) {
     if (m_asms.size() >= 2) {
         if (auto& secondLastAsm = m_asms[m_asms.size() - 2]; (secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) && !m_secondLastJmpIsShort) {
             int32_t ip = codePos[thisId] + m_codeSize - (m_lastJmpIsShort ? 2 : lastAsm.op == AsmOp::JMP ? 5 : 6);
-            int32_t dest = codePos[secondLastAsm.imm.value()];
-            if (dest - ip > -129 && dest - ip < 128) {
+            int32_t dest = codePos[secondLastAsm.imm];
+            if (dest - ip >= INT8_MIN && dest - ip <= INT8_MAX) {
                 m_codeSize -= 4;
                 m_secondLastJmpIsShort = true;
                 changed = true;
@@ -169,12 +169,12 @@ void X64BasicBlock::finalSetJmpRel(int32_t thisId, const int32_t* codePos) {
         return;
     }
     int32_t ip = codePos[thisId] + m_codeSize;
-    int32_t dest = codePos[lastAsm.imm.value()];
+    int32_t dest = codePos[lastAsm.imm];
     lastAsm.imm = dest - ip;
     if (m_asms.size() >= 2) {
         if (auto& secondLastAsm = m_asms[m_asms.size() - 2]; secondLastAsm.op == AsmOp::JZ || secondLastAsm.op == AsmOp::JNZ) {
             ip = codePos[thisId] + m_codeSize - (m_lastJmpIsShort ? 2 : lastAsm.op == AsmOp::JMP ? 5 : 6);
-            dest = codePos[secondLastAsm.imm.value()];
+            dest = codePos[secondLastAsm.imm];
             secondLastAsm.imm = dest - ip;
         }
     }
@@ -463,7 +463,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                 m_asms.emplace_back(
                     AsmOp::ADD,
                     X64RMOperand{false, Size::QWORD, Reg::BX},
-                    std::nullopt,
                     code.arg1.value
                 );
                 zfTemp = -1;
@@ -550,7 +549,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                             m_asms.emplace_back(
                                 AsmOp::ADD,
                                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, reg},
-                                std::nullopt,
                                 code.arg2.value
                             );
                             eStates[static_cast<int32_t>(reg)] = !useByte;
@@ -673,7 +671,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                 m_asms.emplace_back(
                                     AsmOp::ADD,
                                     X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, reg},
-                                    std::nullopt,
                                     code.arg2.value
                                 );
                                 eStates[static_cast<int32_t>(reg)] = !useByte;
@@ -690,7 +687,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::ADD,
                                         X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, resultReg},
-                                        std::nullopt,
                                         code.arg2.value
                                     );
                                     eStates[static_cast<int32_t>(resultReg)] = !useByte;
@@ -714,7 +710,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::ADD,
                                         X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, resultReg},
-                                        std::nullopt,
                                         code.arg2.value
                                     );
                                     eStates[static_cast<int32_t>(resultReg)] = !useByte;
@@ -740,7 +735,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         m_asms.emplace_back(
                             AsmOp::ADD,
                             X64RMOperand{true, Size::BYTE, Reg::BX, code.arg1.value},
-                            std::nullopt,
                             code.arg2.value
                         );
                         zfTemp = -1;
@@ -833,7 +827,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                             m_asms.emplace_back(
                                 AsmOp::SUB,
                                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, reg},
-                                std::nullopt,
                                 code.arg2.value
                             );
                             eStates[static_cast<int32_t>(reg)] = !useByte;
@@ -1015,7 +1008,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                 m_asms.emplace_back(
                                     AsmOp::SUB,
                                     X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, reg},
-                                    std::nullopt,
                                     code.arg2.value
                                 );
                                 eStates[static_cast<int32_t>(reg)] = !useByte;
@@ -1032,7 +1024,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::SUB,
                                         X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, resultReg},
-                                        std::nullopt,
                                         code.arg2.value
                                     );
                                     eStates[static_cast<int32_t>(resultReg)] = !useByte;
@@ -1056,7 +1047,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::SUB,
                                         X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, resultReg},
-                                        std::nullopt,
                                         code.arg2.value
                                     );
                                     eStates[static_cast<int32_t>(resultReg)] = !useByte;
@@ -1074,7 +1064,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                             m_asms.emplace_back(
                                 AsmOp::MOV,
                                 X64RMOperand{false, Size::BYTE, reg},
-                                std::nullopt,
                                 code.arg1.value
                             );
                             m_asms.emplace_back(
@@ -1099,7 +1088,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                 m_asms.emplace_back(
                                     AsmOp::ADD,
                                     X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, reg},
-                                    std::nullopt,
                                     code.arg1.value
                                 );
                                 zfTemp = useByte ? code.result.value : -1;
@@ -1110,7 +1098,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::MOV,
                                         X64RMOperand{false, Size::BYTE, resultReg},
-                                        std::nullopt,
                                         code.arg1.value
                                     );
                                     m_asms.emplace_back(
@@ -1125,7 +1112,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                                     m_asms.emplace_back(
                                         AsmOp::MOV,
                                         X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, resultReg},
-                                        std::nullopt,
                                         code.arg1.value
                                     );
                                     m_asms.emplace_back(
@@ -1156,7 +1142,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         m_asms.emplace_back(
                             AsmOp::SUB,
                             X64RMOperand{true, Size::BYTE, Reg::BX, code.arg1.value},
-                            std::nullopt,
                             code.arg2.value
                         );
                         zfTemp = -1;
@@ -1448,7 +1433,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         m_asms.emplace_back(
                             AsmOp::MOV,
                             X64RMOperand{true, Size::BYTE, Reg::BX, code.result.value},
-                            std::nullopt,
                             code.arg1.value
                         );
                     } else {
@@ -1478,7 +1462,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                     m_asms.emplace_back(
                         AsmOp::CMP,
                         X64RMOperand{true, Size::BYTE, Reg::BX, code.arg1.value},
-                        std::nullopt,
                         0
                     );
                 } else if (zfTemp != code.arg1.value) {
@@ -1486,7 +1469,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         m_asms.emplace_back(
                             AsmOp::CMP,
                             X64RMOperand{true, Size::BYTE, Reg::SP, WindowsPEPlusGenerator::STACK_SPILL_OFFSET + tempInfos[code.arg1.value].currentRegOrMem},
-                            std::nullopt,
                             0
                         );
                     } else {
@@ -1497,14 +1479,13 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         );
                     }
                 }
-                m_asms.emplace_back(AsmOp::JNZ);
+                m_asms.emplace_back(AsmOp::JNZ, 0);
                 break;
             case OpType::JZ:
                 if (code.arg1.type == ArgType::PTR_OFFSET) {
                     m_asms.emplace_back(
                         AsmOp::CMP,
                         X64RMOperand{true, Size::BYTE, Reg::BX, code.arg1.value},
-                        std::nullopt,
                         0
                     );
                 } else if (zfTemp != code.arg1.value) {
@@ -1512,7 +1493,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         m_asms.emplace_back(
                             AsmOp::CMP,
                             X64RMOperand{true, Size::BYTE, Reg::SP, WindowsPEPlusGenerator::STACK_SPILL_OFFSET + tempInfos[code.arg1.value].currentRegOrMem},
-                            std::nullopt,
                             0
                         );
                     } else {
@@ -1523,7 +1503,7 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                         );
                     }
                 }
-                m_asms.emplace_back(AsmOp::JZ);
+                m_asms.emplace_back(AsmOp::JZ, 0);
                 break;
             case OpType::PUTCHAR:
                 if (code.arg1.type == ArgType::PTR_OFFSET) {
@@ -1564,7 +1544,6 @@ void X64BasicBlock::generateWindows(OptimizationLevel level) {
                     m_asms.emplace_back(
                         AsmOp::MOV,
                         X64RMOperand{false, Size::DWORD, Reg::CX},
-                        std::nullopt,
                         code.arg1.value
                     );
                 }
@@ -1667,34 +1646,33 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
     if (level != OptimizationLevel::O0) {
         // 连续内存常量赋值优化
         for (auto it = m_asms.begin(); it != m_asms.end();) {
-            if (it->op == AsmOp::MOV && it->operand1.has_value() && it->operand1->isMem && it->operand1->reg == Reg::BX &&
-                it->operand1->size == Size::BYTE && it->imm.has_value()) {
-                int32_t offset = it->operand1->disp;
-                int8_t data[4] = {static_cast<int8_t>(it->imm.value())};
+            if (it->op == AsmOp::MOV && it->rm1.isMem && it->rm1.reg == Reg::BX && it->rm1.size == Size::BYTE && it->hasImm) {
+                int32_t offset = it->rm1.disp;
+                int8_t data[4] = {static_cast<int8_t>(it->imm)};
                 auto size = Size::BYTE;
                 if (auto next1 = it + 1; next1 != m_asms.end() &&
-                    next1->op == AsmOp::MOV && next1->operand1.has_value() && next1->operand1->isMem && next1->operand1->reg == Reg::BX &&
-                    next1->operand1->disp == offset + 1 && next1->operand1->size == Size::BYTE && next1->imm.has_value()) {
+                    next1->op == AsmOp::MOV && next1->rm1.isMem && next1->rm1.reg == Reg::BX &&
+                    next1->rm1.disp == offset + 1 && next1->rm1.size == Size::BYTE && next1->hasImm) {
                     size = Size::WORD;
-                    data[1] = static_cast<int8_t>(next1->imm.value());
+                    data[1] = static_cast<int8_t>(next1->imm);
                     if (auto next2 = next1 + 1; next2 != m_asms.end()) {
-                        if (auto next3 = next2 + 1; next3 != m_asms.end() &&
-                            next2->op == AsmOp::MOV && next2->operand1.has_value() && next2->operand1->isMem && next2->operand1->reg == Reg::BX &&
-                            next2->operand1->disp == offset + 2 && next2->operand1->size == Size::BYTE && next2->imm.has_value() &&
-                            next3->op == AsmOp::MOV && next3->operand1.has_value() && next3->operand1->isMem && next3->operand1->reg == Reg::BX &&
-                            next3->operand1->disp == offset + 3 && next3->operand1->size == Size::BYTE && next3->imm.has_value()) {
+                        if (auto next3 = next2 + 1; next3 != m_asms.end()
+                            && next2->op == AsmOp::MOV && next2->rm1.isMem && next2->rm1.reg == Reg::BX
+                            && next2->rm1.disp == offset + 2 && next2->rm1.size == Size::BYTE && next2->hasImm
+                            && next3->op == AsmOp::MOV && next3->rm1.isMem && next3->rm1.reg == Reg::BX
+                            && next3->rm1.disp == offset + 3 && next3->rm1.size == Size::BYTE && next3->hasImm) {
                             size = Size::DWORD;
-                            data[2] = static_cast<int8_t>(next2->imm.value());
-                            data[3] = static_cast<int8_t>(next3->imm.value());
+                            data[2] = static_cast<int8_t>(next2->imm);
+                            data[3] = static_cast<int8_t>(next3->imm);
                         }
                     }
                 }
                 if (size == Size::WORD) {
-                    it->operand1->size = Size::WORD;
+                    it->rm1.size = Size::WORD;
                     it->imm = static_cast<int32_t>(*reinterpret_cast<int16_t*>(data));
                     it = m_asms.erase(it + 1, it + 2);
                 } else if (size == Size::DWORD) {
-                    it->operand1->size = Size::DWORD;
+                    it->rm1.size = Size::DWORD;
                     it->imm = *reinterpret_cast<int32_t*>(data);
                     it = m_asms.erase(it + 1, it + 4);
                 } else {
@@ -1705,6 +1683,7 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
             }
         }
 
+        // todo：为什么会出现这种屎代码？有更好的写法吗？
         // 如果最后一条语句是条件跳转
         if (!m_asms.empty() && (m_asms.back().op == AsmOp::JNZ || m_asms.back().op == AsmOp::JZ)) {
             // 跳转运算优化部分
@@ -1714,8 +1693,7 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
             for (auto end = m_asms.rend(); setFlagsIt != end; ++setFlagsIt) {
                 if (setFlagsIt->op == AsmOp::ADD || setFlagsIt->op == AsmOp::SUB || setFlagsIt->op == AsmOp::CMP || setFlagsIt->op == AsmOp::SHL || setFlagsIt->op == AsmOp::NEG
                     || setFlagsIt->op == AsmOp::IMUL || setFlagsIt->op == AsmOp::TEST || setFlagsIt->op == AsmOp::XOR || setFlagsIt->op == AsmOp::INC || setFlagsIt->op == AsmOp::DEC) {
-                    auto &operand11 = setFlagsIt->operand1.value();
-                    if ((setFlagsIt->op == AsmOp::ADD || setFlagsIt->op == AsmOp::SUB) && !operand11.isMem && operand11.size == Size::BYTE) {
+                    if ((setFlagsIt->op == AsmOp::ADD || setFlagsIt->op == AsmOp::SUB) && !setFlagsIt->rm1.isMem && setFlagsIt->rm1.size == Size::BYTE) {
                         canOptimize1 = true;
                     }
                     break;
@@ -1724,15 +1702,15 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
             if (canOptimize1) {
                 // 如果是加，查找上一条是不是 neg
                 bool isNegThenAdd = false;
-                if (setFlagsIt->op == AsmOp::ADD && setFlagsIt + 1 != m_asms.rend() && (setFlagsIt + 1)->op == AsmOp::NEG && (setFlagsIt + 1)->operand1 == setFlagsIt->operand1) {
+                if (setFlagsIt->op == AsmOp::ADD && setFlagsIt + 1 != m_asms.rend() && (setFlagsIt + 1)->op == AsmOp::NEG && (setFlagsIt + 1)->rm1 == setFlagsIt->rm1) {
                     isNegThenAdd = true;
                 }
                 // 然后看有没有写入变量，要么没写入变量，要么只写入一个变量
                 auto destIt = m_asms.rbegin() + 1;
                 int32_t writeCnt = 0;
                 for (auto it = m_asms.rbegin() + 1; it != setFlagsIt; ++it) {
-                    if (it->op == AsmOp::MOV && it->operand1->isMem && it->operand1->size == Size::BYTE && it->operand1->reg == Reg::BX
-                        && it->operand2 == setFlagsIt->operand1) {
+                    if (it->op == AsmOp::MOV && it->rm1.isMem && it->rm1.size == Size::BYTE && it->rm1.reg == Reg::BX
+                        && it->hasRm2 && it->rm2 == setFlagsIt->rm1) {
                         if (writeCnt == 0) {
                             destIt = it;
                             writeCnt = 1;
@@ -1743,20 +1721,20 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
                     }
                 }
 
-                if (writeCnt == 0 && (setFlagsIt->op == AsmOp::SUB || isNegThenAdd || setFlagsIt->imm.has_value())) {
+                if (writeCnt == 0 && (setFlagsIt->op == AsmOp::SUB || isNegThenAdd || setFlagsIt->hasImm)) {
                     // 转为 cmp 的条件：减法，如果是加法，要么前面 neg 了，要么第二操作数为立即数
                     bool isMemSrc = false;
                     auto srcIt = setFlagsIt + 1;
                     for (auto end = m_asms.rend(); srcIt != end; ++srcIt) {
                         // 若中途出现写入目标变量，终止回溯
                         // call getchar 指令终止回溯 ax
-                        if (srcIt->operand1.has_value() && !srcIt->operand1->isMem && srcIt->operand1->reg == setFlagsIt->operand1->reg
-                            || srcIt->op == AsmOp::CALL && srcIt->operand1->reg == Reg::DI && setFlagsIt->operand1->reg == Reg::AX) {
-                            if (srcIt->op == AsmOp::MOVZX && srcIt->operand2->isMem && srcIt->operand2->reg == Reg::BX) {
+                        if (srcIt->hasRm1 && !srcIt->rm1.isMem && srcIt->rm1.reg == setFlagsIt->rm1.reg
+                            || srcIt->op == AsmOp::CALL && srcIt->rm1.reg == Reg::DI && setFlagsIt->rm1.reg == Reg::AX) {
+                            if (srcIt->op == AsmOp::MOVZX && srcIt->rm2.isMem && srcIt->rm2.reg == Reg::BX) {
                                 isMemSrc = true;
                                 // 往下查找，如果出现写入该目标变量，则不设置 isMemSrc
                                 for (auto it = srcIt.base(), end1 = setFlagsIt.base() - 1; it != end1; ++it) {
-                                    if (it->op == AsmOp::MOV && it->operand1 == srcIt->operand2) {
+                                    if (it->op == AsmOp::MOV && it->rm1 == srcIt->rm2) {
                                         isMemSrc = false;
                                         break;
                                     }
@@ -1767,7 +1745,7 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
                     }
                     int32_t srcItOffset = srcIt.base() - 1 - m_asms.begin();
                     if (isMemSrc) {
-                        setFlagsIt->operand1 = srcIt->operand2;
+                        setFlagsIt->rm1 = srcIt->rm2;
                     }
                     if (setFlagsIt->op == AsmOp::SUB) {
                         // 减法
@@ -1779,14 +1757,14 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
                     } else {
                         // 加法立即数
                         setFlagsIt->op = AsmOp::CMP;
-                        setFlagsIt->imm = static_cast<int8_t>(-setFlagsIt->imm.value());
+                        setFlagsIt->imm = static_cast<int8_t>(-setFlagsIt->imm);
                     }
                     if (isMemSrc) {
                         m_asms.erase(m_asms.begin() + srcItOffset);
                     }
                 } else if (writeCnt == 1) {
                     // 如果这条运算为加法，第二操作数为变量，最后写到同一个变量，根据是否 neg 可以优化成 内存 + 寄存器或内存 - 寄存器
-                    if (setFlagsIt->op == AsmOp::ADD && setFlagsIt->operand2 == destIt->operand1) {
+                    if (setFlagsIt->op == AsmOp::ADD && setFlagsIt->hasRm2 && setFlagsIt->rm2 == destIt->rm1) {
                         if (isNegThenAdd) {
                             destIt->op = AsmOp::SUB;
                             m_asms.erase(setFlagsIt.base() - 2, setFlagsIt.base());
@@ -1794,16 +1772,18 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
                             destIt->op = AsmOp::ADD;
                             m_asms.erase(setFlagsIt.base() - 1);
                         }
-                    } else if (!setFlagsIt->operand2.has_value() || !setFlagsIt->operand2->isMem) {
+                    } else if (!setFlagsIt->hasRm2 || !setFlagsIt->rm2.isMem) {
                         // 否则为减法，需要第二个操作数为寄存器或立即数，需要查找这个寄存器是否直接来源于相同变量（movzx）
                         for (auto srcIt = setFlagsIt + 1, end = m_asms.rend(); srcIt != end; ++srcIt) {
                             // call getchar 指令终止回溯 ax
-                            if (srcIt->operand1.has_value() && !srcIt->operand1->isMem && srcIt->operand1->reg == setFlagsIt->operand1->reg ||
-                                srcIt->op == AsmOp::CALL && srcIt->operand1->reg == Reg::DI && setFlagsIt->operand1->reg == Reg::AX) {
-                                if (srcIt->op == AsmOp::MOVZX && srcIt->operand2 == destIt->operand1) {
+                            if (srcIt->hasRm1 && !srcIt->rm1.isMem && srcIt->rm1.reg == setFlagsIt->rm1.reg ||
+                                srcIt->op == AsmOp::CALL && srcIt->rm1.reg == Reg::DI && setFlagsIt->rm1.reg == Reg::AX) {
+                                if (srcIt->op == AsmOp::MOVZX && srcIt->rm2 == destIt->rm1) {
                                     // source known
                                     destIt->op = setFlagsIt->op;
-                                    destIt->operand2 = setFlagsIt->operand2;
+                                    destIt->hasRm2 = setFlagsIt->hasRm2;
+                                    destIt->rm2 = setFlagsIt->rm2;
+                                    destIt->hasImm = setFlagsIt->hasImm;
                                     destIt->imm = setFlagsIt->imm;
                                     int32_t srcItOffset = srcIt.base() - 1 - m_asms.begin();
                                     m_asms.erase(setFlagsIt.base() - 1);
@@ -1828,19 +1808,23 @@ void X64BasicBlock::postOptimize(OptimizationLevel level) {
 
     // 经典的 ±1 替换为 inc/dec，寄存器清零 xor
     for (auto& asm1 : m_asms) {
-        if ((asm1.op == AsmOp::ADD || asm1.op == AsmOp::SUB) && asm1.imm.has_value()) {
-            if (asm1.op == AsmOp::ADD && asm1.imm.value() == 1 || asm1.op == AsmOp::SUB && asm1.imm.value() == -1) {
+        if ((asm1.op == AsmOp::ADD || asm1.op == AsmOp::SUB) && asm1.hasImm) {
+            if (asm1.op == AsmOp::ADD && asm1.imm == 1 || asm1.op == AsmOp::SUB && asm1.imm == -1) {
                 asm1.op = AsmOp::INC;
-                asm1.imm = std::nullopt;
-            } else if (asm1.op == AsmOp::ADD && asm1.imm.value() == -1 || asm1.op == AsmOp::SUB && asm1.imm.value() == 1) {
+                asm1.hasImm = false;
+                asm1.imm = 0;
+            } else if (asm1.op == AsmOp::ADD && asm1.imm == -1 || asm1.op == AsmOp::SUB && asm1.imm == 1) {
                 asm1.op = AsmOp::DEC;
-                asm1.imm = std::nullopt;
+                asm1.hasImm = false;
+                asm1.imm = 0;
             }
-        } else if (asm1.op == AsmOp::MOV && !asm1.operand1->isMem && asm1.imm.has_value() && asm1.imm.value() == 0) {
+        } else if (asm1.op == AsmOp::MOV && !asm1.rm1.isMem && asm1.hasImm && asm1.imm == 0) {
             asm1.op = AsmOp::XOR;
-            asm1.operand1->size = Size::DWORD;
-            asm1.operand2 = asm1.operand1;
-            asm1.imm = std::nullopt;
+            asm1.rm1.size = Size::DWORD;
+            asm1.hasRm2 = true;
+            asm1.rm2 = asm1.rm1;
+            asm1.hasImm = false;
+            asm1.imm = 0;
         }
     }
 }
@@ -1901,7 +1885,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 2
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;
@@ -1938,7 +1921,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 3
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;
@@ -1979,7 +1961,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 2
             );
             isSpecial = true;
@@ -2004,7 +1985,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 4
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;
@@ -2036,7 +2016,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 2
             );
             isSpecial = true;
@@ -2051,7 +2030,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 3
             );
             isSpecial = true;
@@ -2090,7 +2068,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 5
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;
@@ -2108,7 +2085,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 2
             );
             isSpecial = true;
@@ -2123,7 +2099,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 3
             );
             isSpecial = true;
@@ -2152,7 +2127,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 4
             );
             isSpecial = true;
@@ -2162,7 +2136,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 6
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;
@@ -2180,7 +2153,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 3
             );
             isSpecial = true;
@@ -2195,7 +2167,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 4
             );
             isSpecial = true;
@@ -2224,7 +2195,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, isCondJmp ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 5
             );
             isSpecial = true;
@@ -2234,7 +2204,6 @@ int32_t X64BasicBlock::imulConstant(
             m_asms.emplace_back(
                 AsmOp::SHL,
                 X64RMOperand{false, useByte ? Size::BYTE : Size::DWORD, targetReg},
-                std::nullopt,
                 7
             );
             eStates[static_cast<int32_t>(targetReg)] = !useByte;

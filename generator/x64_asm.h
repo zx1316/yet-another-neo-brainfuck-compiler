@@ -1,8 +1,8 @@
 #ifndef YETANOTHERNEOBRAINFUCKCOMPILER_X64_ASM_H
 #define YETANOTHERNEOBRAINFUCKCOMPILER_X64_ASM_H
 
+#include <array>
 #include <cstdint>
-#include <optional>
 #include <ostream>
 
 struct X64RMOperand {
@@ -14,10 +14,10 @@ struct X64RMOperand {
         BYTE, WORD, DWORD, QWORD
     };
 
-    static const char * const TRANSLATE_BYTE[];
-    static const char * const TRANSLATE_WORD[];
-    static const char * const TRANSLATE_DWORD[];
-    static const char * const TRANSLATE_QWORD[];
+    static constexpr auto TRANSLATE_BYTE = std::array{"al", "cl", "dl", "bl", "spl", "bpl", "sil", "dil", "r8b", "r9b", "r10b", "r11b", "r12b", "r13b", "r14b", "r15b"};
+    static constexpr auto TRANSLATE_WORD = std::array{"ax", "cx", "dx", "bx", "sp", "bp", "si", "di", "r8w", "r9w", "r10w", "r11w", "r12w", "r13w", "r14w", "r15w"};
+    static constexpr auto TRANSLATE_DWORD = std::array{"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi", "r8d", "r9d", "r10d", "r11d", "r12d", "r13d", "r14d", "r15d"};
+    static constexpr auto TRANSLATE_QWORD = std::array{"rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15", "rip"};
 
     bool isMem = false;
     Size size = Size::BYTE;
@@ -72,106 +72,67 @@ struct X64Asm {
         MOV, MOVZX, LEA, ADD, SUB, CMP, SHL, NEG, IMUL, TEST, JMP, JZ, JNZ, CALL, XOR, INC, DEC
     };
 
-    static const char * const OPERATOR_TRANSLATE[];
+    static constexpr auto OPERATOR_TRANSLATE = std::array{
+        "mov", "movzx", "lea", "add", "sub", "cmp", "shl", "neg", "imul", "test", "jmp", "jz", "jnz", "call", "xor", "inc", "dec"
+    };
 
-    Operator op = Operator::MOV;
-    std::optional<X64RMOperand> operand1;
-    std::optional<X64RMOperand> operand2;
-    std::optional<int64_t> imm;
+    Operator op;
+    bool hasRm1;
+    bool hasRm2;
+    bool hasImm;
+    X64RMOperand rm1;
+    X64RMOperand rm2;
+    int64_t imm;
+
+    X64Asm(Operator op, const X64RMOperand& operand1) :
+        op(op), hasRm1(true), hasRm2(false), hasImm(false), rm1(operand1), imm(0) {}
+
+    X64Asm(Operator op, int64_t operand1) :
+        op(op), hasRm1(false), hasRm2(false), hasImm(true), imm(operand1) {}
+
+    X64Asm(Operator op, const X64RMOperand& operand1, const X64RMOperand& operand2) :
+        op(op), hasRm1(true), hasRm2(true), hasImm(false), rm1(operand1), rm2(operand2), imm(0) {}
+
+    X64Asm(Operator op, const X64RMOperand& operand1, int64_t operand2) :
+        op(op), hasRm1(true), hasRm2(false), hasImm(true), rm1(operand1), imm(operand2) {}
+
+    X64Asm(Operator op, const X64RMOperand& operand1, const X64RMOperand& operand2, int64_t operand3) :
+        op(op), hasRm1(true), hasRm2(true), hasImm(true), rm1(operand1), rm2(operand2), imm(operand3) {}
 
     friend std::ostream& operator<<(std::ostream& os, const X64Asm& obj) {
-        os << OPERATOR_TRANSLATE[static_cast<int32_t>(obj.op)] << '\t';
-        if (obj.operand1.has_value()) {
-            os << obj.operand1.value();
+        os << OPERATOR_TRANSLATE[static_cast<int>(obj.op)] << '\t';
+        if (obj.hasRm1) {
+            os << obj.rm1;
         }
-        if (obj.operand2.has_value()) {
-            os << ", " << obj.operand2.value();
+        if (obj.hasRm2) {
+            os << ", " << obj.rm2;
         }
-        if (obj.imm.has_value()) {
-            if (obj.operand1.has_value()) {
-                os << ", " << obj.imm.value();
+        if (obj.hasImm) {
+            if (obj.hasRm1) {
+                os << ", " << obj.imm;
             } else {
-                os << obj.imm.value();
-            }
-        }
-        return os;
-    }
-};
-
-struct X64Asm2 {
-    enum class Operator : uint8_t {
-        MOV, MOVZX, LEA, ADD, SUB, CMP, SHL, NEG, IMUL, TEST, JMP, JZ, JNZ, CALL, XOR, INC, DEC
-    };
-
-    enum OperandBit : uint8_t {
-        RM1 = 0x1,
-        RM2 = 0x2,
-        IMM = 0x4
-    };
-
-    static const char * const OPERATOR_TRANSLATE[];
-
-    X64Asm2(Operator op, const X64RMOperand& operand1) :
-        m_comb(RM1), m_op(op), m_rm1(operand1), m_imm(0) {}
-    X64Asm2(Operator op, int64_t operand1) :
-        m_comb(IMM), m_op(op), m_imm(operand1) {}
-    X64Asm2(Operator op, const X64RMOperand& operand1, const X64RMOperand& operand2) :
-        m_comb(RM1 | RM2), m_op(op), m_rm1(operand1), m_rm2(operand2), m_imm(0) {}
-    X64Asm2(Operator op, const X64RMOperand& operand1, int64_t operand2) :
-        m_comb(RM1 | IMM), m_op(op), m_rm1(operand1), m_imm(operand2) {}
-    X64Asm2(Operator op, const X64RMOperand& operand1, const X64RMOperand& operand2, int64_t operand3) :
-        m_comb(RM1 | RM2 | IMM), m_op(op), m_rm1(operand1), m_rm2(operand2), m_imm(operand3) {}
-
-    [[nodiscard]] uint8_t comb() const { return m_comb; }
-    [[nodiscard]] Operator op() const { return m_op; }
-    [[nodiscard]] const X64RMOperand& rm1() const { return m_rm1; }
-    [[nodiscard]] const X64RMOperand& rm2() const { return m_rm2; }
-    [[nodiscard]] int64_t imm() const { return m_imm; }
-
-    void setOp(Operator op) { m_op = op; }
-    void setImm(int64_t imm) { m_imm = imm; }
-
-    friend std::ostream& operator<<(std::ostream& os, const X64Asm2& obj) {
-        os << OPERATOR_TRANSLATE[static_cast<int>(obj.m_op)] << '\t';
-        if (obj.comb() & RM1) {
-            os << obj.m_rm1;
-        }
-        if (obj.comb() & RM2) {
-            os << ", " << obj.m_rm2;
-        }
-        if (obj.comb() & IMM) {
-            if (obj.comb() & RM1) {
-                os << ", " << obj.m_imm;
-            } else {
-                os << obj.m_imm;
+                os << obj.imm;
             }
         }
         return os;
     }
 
-    bool operator==(const X64Asm2& other) const {
-        if (m_comb != other.m_comb || m_op != other.m_op) {
+    bool operator==(const X64Asm& other) const {
+        if (op != other.op || hasRm1 != other.hasRm1 || hasRm2 != other.hasRm2 || hasImm != other.hasImm) {
             return false;
         }
-        if (m_comb & RM1 && m_rm1 != other.m_rm1) {
+        if (hasRm1 && rm1 != other.rm1) {
             return false;
         }
-        if (m_comb & RM2 && m_rm2 != other.m_rm2) {
+        if (hasRm2 && rm2 != other.rm2) {
             return false;
         }
-        return !(m_comb & IMM && m_imm != other.m_imm);
+        return !(hasImm && imm != other.imm);
     }
 
-    bool operator!=(const X64Asm2& other) const {
+    bool operator!=(const X64Asm& other) const {
         return !operator==(other);
     }
-
-private:
-    int8_t m_comb;
-    Operator m_op;
-    X64RMOperand m_rm1;
-    X64RMOperand m_rm2;
-    int64_t m_imm;
 };
 
 

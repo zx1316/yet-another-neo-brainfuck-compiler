@@ -44,7 +44,7 @@ private:
     std::vector<uint8_t> m_bytes;
     int32_t m_dryLen = 0;
 
-    static constexpr auto NOPS = std::array{
+    static constexpr auto NOPS = std::array<std::string_view, 16>{
         "",
         "\x90",
         "\x66\x90",

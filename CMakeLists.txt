@@ -46,7 +46,6 @@ add_executable(bf-compiler main.cpp
         optimizer/block_live_var_info.h
         generator/windows_pe_plus_generator.cpp
         generator/windows_pe_plus_generator.h
-        generator/x64_asm.cpp
         generator/x64_asm.h
         generator/x64_basic_block.cpp
         generator/x64_basic_block.h
